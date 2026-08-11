@@ -7,39 +7,53 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-function getSafeReturnTo(raw: string | null): string {
-  if (!raw) return "http://localhost:8080/payment-return";
+function getAllowedOrigins(): Set<string> {
+  return new Set(
+    (Deno.env.get("APP_ORIGINS") ?? "")
+      .split(",")
+      .map((origin) => origin.trim().replace(/\/$/, ""))
+      .filter(Boolean),
+  );
+}
+
+function getSafeReturnTo(raw: string | null): URL | null {
+  if (!raw) return null;
 
   try {
     const url = new URL(raw);
-    if (url.protocol === "http:" || url.protocol === "https:") return url.toString();
+    if (getAllowedOrigins().has(url.origin) && url.pathname === "/payment-return") {
+      url.search = "";
+      url.hash = "";
+      return url;
+    }
   } catch {
-    // ignore
+    // Invalid URLs are rejected below.
   }
 
-  return "http://localhost:8080/payment-return";
+  return null;
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method !== "GET" && req.method !== "POST") {
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
-  const reqUrl = new URL(req.url);
-  const returnTo = getSafeReturnTo(reqUrl.searchParams.get("return_to"));
-  const redirectUrl = new URL(returnTo);
+  const requestUrl = new URL(req.url);
+  const redirectUrl = getSafeReturnTo(requestUrl.searchParams.get("return_to"));
+  if (!redirectUrl) {
+    return new Response("Invalid payment return URL", {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
 
   try {
-    const plan = reqUrl.searchParams.get("plan");
-    if (plan) redirectUrl.searchParams.set("plan", plan);
-
     if (req.method === "POST") {
       const form = await req.formData();
-      for (const [key, value] of form.entries()) {
-        redirectUrl.searchParams.set(key, String(value));
-      }
+      for (const [key, value] of form.entries()) redirectUrl.searchParams.set(key, String(value));
     } else {
-      for (const [key, value] of reqUrl.searchParams.entries()) {
+      for (const [key, value] of requestUrl.searchParams.entries()) {
         if (key !== "return_to") redirectUrl.searchParams.set(key, value);
       }
     }

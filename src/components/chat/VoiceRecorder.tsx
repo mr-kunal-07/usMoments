@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { Send, Loader2, Mic, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/useToast";
 
 const MAX_SECONDS = 120;
 const WAVEFORM_BARS = 28;

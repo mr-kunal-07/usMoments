@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { dashboardPath } from "@/app/router/paths";
 
 function isStandalonePwa(): boolean {
   if (typeof window === "undefined") return false;
@@ -157,7 +158,7 @@ export function pushSupportState(): {
   };
 }
 
-export async function pushToPartner(title: string, body: string, url = "/dashboard"): Promise<void> {
+export async function pushToPartner(title: string, body: string, url = dashboardPath()): Promise<void> {
   try {
     const {
       data: { session },

@@ -312,6 +312,7 @@ export const TravelMapCanvas = memo(function TravelMapCanvas({
 
     mapRef.current = map;
     const markers = markersRef.current;
+    const fences = fenceRef.current;
 
     return () => {
       geoAbortRef.current?.abort();
@@ -319,7 +320,7 @@ export const TravelMapCanvas = memo(function TravelMapCanvas({
       mapRef.current = null;
       userMarkerRef.current = null;
       markers.clear();
-      fenceRef.current.clear();
+      fences.clear();
       polylineRef.current = null;
     };
   }, [handleLocate]);

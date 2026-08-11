@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useMyCouple } from "@/hooks/useCouple";
 import { encryptText, decryptMessages } from "@/lib/crypto";
 import { pushToPartner } from "@/hooks/usePushNotifications";
+import { dashboardPath } from "@/app/router/paths";
 import { QK } from "@/lib/queryKeys";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -369,7 +370,7 @@ export function useMessages(options: UseMessagesOptions = {}) {
           : messageType === "drawing"
             ? "🎨 Sent a drawing"
             : content.length > 80 ? content.slice(0, 80) + "…" : content;
-        pushToPartner("💬 New Message", notifBody, "/dashboard/chat");
+        pushToPartner("💬 New Message", notifBody, dashboardPath("chat"));
       } catch { /* ignore push failures */ }
 
       return data!;

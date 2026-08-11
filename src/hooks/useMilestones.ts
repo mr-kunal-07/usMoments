@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { QK } from "@/lib/queryKeys";
 import { pushToPartner } from "@/hooks/usePushNotifications";
+import { dashboardPath } from "@/app/router/paths";
 import { usePrivateScope } from "@/hooks/usePrivateScope";
 
 export interface Milestone {
@@ -44,7 +45,7 @@ export function useAddMilestone() {
       if (error) throw error;
       // Push to partner — non-blocking
       const emoji = values.type === "anniversary" ? "🎉" : "✨";
-      pushToPartner(`${emoji} New ${values.type === "anniversary" ? "Anniversary" : "Milestone"}`, `"${values.title}" was added to usMoment`, "/dashboard/anniversaries");
+      pushToPartner(`${emoji} New ${values.type === "anniversary" ? "Anniversary" : "Milestone"}`, `"${values.title}" was added to usMoment`, dashboardPath("anniversaries"));
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.milestones() }),
   });

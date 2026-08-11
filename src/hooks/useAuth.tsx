@@ -13,8 +13,10 @@ import {
 } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { appConfig } from "@/lib/config";
 import { QK } from "@/lib/queryKeys";
 import { clearChatMediaCaches } from "@/lib/swChatMediaCache";
+import { APP_PATHS, sanitiseRedirect } from "@/app/router/paths";
 
 // ─── Logger ───────────────────────────────────────────────────────────────────
 
@@ -58,22 +60,6 @@ export const PARTNER_CODE_KEY = "usMoment:pending_partner_code";
 export const JOIN_REDIRECT_KEY = "usMoment:join_redirect";
 
 // ─── Redirect Sanitisation ────────────────────────────────────────────────────
-
-const REDIRECT_ALLOWLIST = ["/chat", "/memories", "/map", "/profile", "/join", "/"] as const;
-
-export function sanitiseRedirect(raw: string | null): string | null {
-  if (!raw || !isBrowser) return null;
-  try {
-    const url = new URL(raw, window.location.origin);
-    if (url.origin !== window.location.origin) return null;
-    const allowed = REDIRECT_ALLOWLIST.some(
-      p => url.pathname === p || url.pathname.startsWith(`${p}/`)
-    );
-    return allowed ? url.pathname : null;
-  } catch {
-    return null;
-  }
-}
 
 // ─── Retry Helper ─────────────────────────────────────────────────────────────
 
@@ -318,7 +304,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email, password,
         options: {
           data: { display_name: displayName },
-          emailRedirectTo: `${getOrigin()}/auth/callback`,
+          emailRedirectTo: `${getOrigin()}${APP_PATHS.authCallback}`,
         },
       });
       endAction("signUp", error);
@@ -357,7 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     startAction("resetPassword");
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${getOrigin()}/auth/callback`,
+        redirectTo: `${getOrigin()}${APP_PATHS.authCallback}`,
       });
       endAction("resetPassword", error);
       return { data: null, error };
@@ -370,15 +356,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithOAuth = useCallback(async (provider: Provider): Promise<AuthResult<null>> => {
     if (isInFlight("googleOAuth")) return { data: null, error: null };
+    if (provider === "google" && !appConfig.googleAuthEnabled) {
+      authLog.warn("Blocked Google OAuth because it is disabled in the application config");
+      return { data: null, error: null };
+    }
     startAction("googleOAuth");
     const current = getPathname();
-    if (current && current !== "/auth") {
+    if (current && current !== APP_PATHS.auth) {
       ephemeralStorage.set(JOIN_REDIRECT_KEY, current);
     }
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { redirectTo: `${getOrigin()}/auth/callback` },
+        options: { redirectTo: `${getOrigin()}${APP_PATHS.authCallback}` },
       });
       if (error) { endAction("googleOAuth", error); return { data: null, error }; }
       return { data: null, error: null };
@@ -419,7 +409,7 @@ export function useAuthOptional(): AuthContextType | undefined {
   return useContext(AuthContext);
 }
 
-export function useRequireAuth(loginPath = "/auth"): AuthContextType {
+export function useRequireAuth(loginPath = APP_PATHS.auth): AuthContextType {
   const auth = useAuth();
   const navigate = useNavigate();
 

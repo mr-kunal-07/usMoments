@@ -268,7 +268,7 @@ All tables live in the `public` schema with Row-Level Security enabled.
 - Service-role-only access for subscription management
 
 ### App Lock
-- PIN stored as plaintext in `localStorage` under `usMoments_pin` (device-local, never synced)
+- PIN stored as a device-local hash in `localStorage`; legacy plaintext values are migrated after the next successful unlock
 - Biometric credential stored via WebAuthn browser API
 - Lock triggers on `visibilitychange` after ≥ 15 seconds in background
 - Lock triggers immediately when a new method is set in Settings
@@ -290,11 +290,16 @@ cd usMoments
 # 2. Install dependencies
 npm install
 
-# 3. Start development server
+# 3. Create local environment configuration
+Copy-Item .env.example .env
+
+# 4. Start development server
 npm run dev
 ```
 
-The app connects to the hosted Supabase project automatically via the embedded anon key in `.env`.
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env` from the same Supabase project. The local `.env` file is intentionally ignored by git.
+
+Google sign-in is opt-in. Enable Google in Supabase Auth Providers, configure the OAuth redirect URLs, and then set `VITE_ENABLE_GOOGLE_AUTH=true`. Leaving the flag false keeps email/password auth available without calling a disabled provider.
 
 ### Available Scripts
 ```sh
@@ -303,6 +308,8 @@ npm run build        # Production build
 npm run build:dev    # Development build
 npm run preview      # Preview production build locally
 npm run lint         # ESLint
+npm run typecheck    # TypeScript project checks
+npm run check        # Lint, typecheck, tests, and production build
 npm run test         # Vitest (run once)
 npm run test:watch   # Vitest (watch mode)
 ```
@@ -317,11 +324,26 @@ Deployed automatically to Supabase as Deno serverless functions:
 |---|---|---|
 | `razorpay-create-order` | Creates a Razorpay order for a subscription plan | JWT (user) |
 | `razorpay-verify-payment` | Verifies Razorpay payment signature and activates plan | JWT (user) |
+| `razorpay-payment-return` | Validates and forwards the Razorpay browser callback | Public callback |
 | `admin-list-users` | Lists all users with profile and subscription data | Admin role |
 | `admin-manage-user` | Update plan / toggle admin / delete user | Admin role |
 | `admin-audit-log` | Returns enriched plan audit log | Admin role |
-| `purge-old-messages` | Deletes messages + audio > 24h old (pg_cron 3 AM UTC) | Service role |
-| `purge-deleted-media` | Permanently removes soft-deleted media > 14 days old | Service role |
+| `purge-old-messages` | Deletes messages + audio > 24h old (every 15 minutes) | Cron secret |
+| `purge-deleted-media` | Permanently removes soft-deleted media > 14 days old (daily) | Cron secret |
+
+Configure Edge Function secrets before deploying payment functions:
+
+```sh
+supabase secrets set RAZORPAY_KEY_ID=... RAZORPAY_KEY_SECRET=... APP_ORIGINS=https://app.example.com CRON_SECRET=...
+```
+
+`APP_ORIGINS` is a comma-separated allowlist. Include `http://localhost:8080` only for local payment testing.
+
+Create a Vault secret named `cron_secret` with the same high-entropy value as `CRON_SECRET` before applying the scheduled-cleanup migrations:
+
+```sql
+select vault.create_secret('<same-secret-value>', 'cron_secret');
+```
 
 ---
 
@@ -329,19 +351,40 @@ Deployed automatically to Supabase as Deno serverless functions:
 
 ```
 src/
-├── components/          # Feature components (Chat, Media, Billing, etc.)
-│   └── ui/              # shadcn/ui primitives
-├── hooks/               # Custom React hooks (data fetching, auth, state)
-├── integrations/
-│   └── supabase/        # Auto-generated client & types
-├── lib/                 # Utilities (crypto, query keys, cn)
-├── pages/               # Route-level pages (Dashboard, Auth, Admin, etc.)
-└── assets/              # Static images
+|-- app/                 # Composition root, providers, router, route guards
+|-- components/
+|   |-- common/          # Universal application components
+|   |-- ui/              # Shared shadcn/ui primitives
+|   `-- <domain>/        # Components grouped by business domain
+|-- features/
+|   `-- <feature>/pages/ # Lazy-loaded route pages
+|-- hooks/               # All application hooks in one flat folder
+|-- integrations/
+|   `-- supabase/        # Generated client and database types
+|-- lib/                 # Configuration and route-independent utilities
+`-- test/                # Shared test setup
 
 supabase/
-├── functions/           # Edge Functions (Deno)
-└── config.toml          # Supabase project config
+|-- functions/           # Edge Functions (Deno)
+|-- migrations/          # Versioned database migrations
+`-- config.toml          # Supabase project config
 ```
+
+### Routing Conventions
+
+- `src/app/router/AppRouter.tsx` is the only route declaration file.
+- `src/app/router/paths.ts` owns route constants, typed dashboard views, and URL builders.
+- Authentication and authorization guards are pathless layout routes; parameter validation wraps the matching route directly.
+- Route-level modules live in `features/<feature>/pages` and are lazy-loaded by the router.
+- Use `dashboardPath`, `folderPath`, and `authPath` instead of constructing internal URLs inline.
+
+### Module Ownership
+
+- Put every renderable component in `components/<domain>`; use `components/common` for universal application components.
+- Keep `components/ui` limited to reusable design-system primitives.
+- Put every hook directly in `hooks`; do not add hook subfolders.
+- Keep route pages in `features/<feature>/pages` and application composition in `app`.
+- Import modules through the `@/` alias so moves remain explicit and easy to audit.
 
 ---
 

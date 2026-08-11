@@ -1,17 +1,18 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "usmoments",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
+    "typecheck": "tsc -b --pretty false",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "dev:server": "node server/src/index.js"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.14",

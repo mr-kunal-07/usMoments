@@ -1,4 +1,4 @@
-project_id = "lbmsgsolqprzbzgsemhl"
+project_id = "krdwlkdwwawoucigilxw"
 
 [functions.razorpay-create-order]
 verify_jwt = false
@@ -19,4 +19,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.purge-old-messages]
+verify_jwt = false
+
+[functions.purge-deleted-media]
 verify_jwt = false

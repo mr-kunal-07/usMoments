@@ -18,18 +18,17 @@ import { VoiceRecorder } from "@/components/chat/VoiceRecorder";
 import { useWebRTC, type WebRTCSession } from "@/hooks/useWebRTC";
 import { cn } from "@/lib/utils";
 import { usePlan, canUseVoiceMessages } from "@/hooks/useSubscription";
-import { UpgradeGateModal } from "@/components/UpgradeGateModal";
-import { EmojiPicker, preloadEmojiPicker } from "@/components/chat/Emojipicker";
+import { UpgradeGateModal } from "@/components/billing/UpgradeGateModal";
+import { EmojiPicker, preloadEmojiPicker } from "@/components/chat/EmojiPicker";
 import { DrawingCanvas } from "@/components/chat/DrawingCanvas";
-import { ChatThemePicker } from "@/components/chat/Chatthemepicker";
-import { useChatTheme } from "@/components/chat/Usechattheme";
-import { getTheme, buildThemeStyle } from "@/components/chat/Chatthemes";
+import { ChatThemePicker } from "@/components/chat/ChatThemePicker";
+import { useChatTheme } from "@/hooks/useChatTheme";
+import { getTheme, buildThemeStyle } from "@/components/chat/chatThemes";
 import { useTheme } from "@/hooks/useTheme";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/useToast";
 import { supabase } from "@/integrations/supabase/client";
 import { invalidateMedia } from "@/lib/queryKeys";
 import { preloadAllAudioMessages, useInfiniteScrollTrigger } from "@/hooks/useMessagesInfinite";
-import { registerChatMediaCacheHandlers } from "@/lib/swChatMediaCache";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -506,16 +505,6 @@ export function ChatView({
     if (kbOffset <= 0) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [kbOffset]);
-
-  // Initialize chat media caching in Service Worker
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      registerChatMediaCacheHandlers();
-    } catch (e) {
-      console.warn("[ChatView] Failed to register media cache handlers:", e);
-    }
-  }, []);
 
   // Preload audio messages for instant playback
   useEffect(() => {

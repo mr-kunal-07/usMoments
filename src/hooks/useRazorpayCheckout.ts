@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/useToast";
+import { appConfig } from "@/lib/config";
+import { APP_PATHS } from "@/app/router/paths";
 
 declare global {
   interface Window {
@@ -61,9 +63,8 @@ export function useRazorpayCheckout() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
       const orderRes = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/razorpay-create-order`,
+        `${appConfig.functionsUrl}/razorpay-create-order`,
         {
           method: "POST",
           headers: {
@@ -79,10 +80,9 @@ export function useRazorpayCheckout() {
         throw new Error(orderData.error || "Failed to create order");
       }
 
-      const returnTo = `${window.location.origin}/payment-return`;
-      const callbackUrl = new URL(`https://${projectId}.supabase.co/functions/v1/razorpay-payment-return`);
+      const returnTo = `${window.location.origin}${APP_PATHS.paymentReturn}`;
+      const callbackUrl = new URL(`${appConfig.functionsUrl}/razorpay-payment-return`);
       callbackUrl.searchParams.set("return_to", returnTo);
-      callbackUrl.searchParams.set("plan", plan);
 
       await new Promise<void>((resolve, reject) => {
         const rzp = new window.Razorpay({

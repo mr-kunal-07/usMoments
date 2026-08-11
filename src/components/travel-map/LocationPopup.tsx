@@ -6,12 +6,13 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { folderPath } from "@/app/router/paths";
 import { format, parseISO, isValid } from "date-fns";
 import { TravelLocation, useDeleteTravelLocation, useUpdateTravelLocation } from "@/hooks/useTravelLocations";
 import { useFolders } from "@/hooks/useFolders";
 import { useMedia, getPublicUrl } from "@/hooks/useMedia";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -384,7 +385,7 @@ export const LocationPopup = memo(function LocationPopup({ location, onClose }: 
     onClose();
     // Navigate to the folder page — matches the route pattern:
     // /dashboard/folder/:folderId
-    navigate(`/dashboard/folder/${folderId}`);
+    navigate(folderPath(folderId));
   }, [navigate, onClose]);
 
   // ── Guard ──────────────────────────────────────────────────────────────────

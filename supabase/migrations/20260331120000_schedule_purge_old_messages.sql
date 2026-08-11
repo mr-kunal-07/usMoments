@@ -23,8 +23,14 @@ SELECT cron.schedule(
   $$
     SELECT
       net.http_post(
-        url := 'https://lbmsgsolqprzbzgsemhl.functions.supabase.co/purge-old-messages',
-        headers := '{"Content-Type":"application/json"}'::jsonb,
+        url := 'https://krdwlkdwwawoucigilxw.functions.supabase.co/purge-old-messages',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'x-cron-secret', coalesce(
+            (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1),
+            ''
+          )
+        ),
         body := '{}'::jsonb
       );
   $$

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { dashboardPath } from "@/app/router/paths";
 import { sendPushRequest } from "@/hooks/usePushNotifications";
 
 export type CallType = "voice" | "video";
@@ -270,7 +271,7 @@ export function useWebRTC({
           device.deviceId !== currentDeviceId && isMatchingFacingDevice(device.label, facing),
       );
 
-      const attemptConstraints: MediaTrackConstraints[] = [];
+      const attemptConstraints: Array<MediaTrackConstraints | boolean> = [];
 
       for (const device of matchingDevices) {
         attemptConstraints.push({
@@ -404,7 +405,7 @@ export function useWebRTC({
       const response = await sendPushRequest(session.access_token, {
         title: type === "video" ? "Incoming Video Call" : "Incoming Voice Call",
         body: type === "video" ? "Open usMoments to answer the video call." : "Open usMoments to answer the voice call.",
-        url: "/dashboard/chat",
+        url: dashboardPath("chat"),
         tag: `usmoment-incoming-call-${type}`,
         requireInteraction: true,
         renotify: true,
@@ -414,7 +415,7 @@ export function useWebRTC({
           { action: "decline-call", title: "Decline" },
         ],
         data: {
-          url: "/dashboard/chat",
+          url: dashboardPath("chat"),
           notificationKind: "incoming-call",
           callType: type,
         },
@@ -440,12 +441,12 @@ export function useWebRTC({
       const response = await sendPushRequest(session.access_token, {
         title: type === "video" ? "Missed Video Call" : "Missed Voice Call",
         body: type === "video" ? "You missed a video call on usMoments." : "You missed a voice call on usMoments.",
-        url: "/dashboard/chat?callAction=missed",
+        url: `${dashboardPath("chat")}?callAction=missed`,
         tag: `usmoment-missed-call-${type}`,
         renotify: true,
         vibrate: [180, 120, 180],
         data: {
-          url: "/dashboard/chat?callAction=missed",
+          url: `${dashboardPath("chat")}?callAction=missed`,
           notificationKind: "missed-call",
           callType: type,
         },

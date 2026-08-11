@@ -11,6 +11,14 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+coverage
+.eslintcache
+vite.config.ts.timestamp-*.mjs
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*

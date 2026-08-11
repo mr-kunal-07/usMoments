@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Tables } from "@/integrations/supabase/types";
 import { QK, invalidateMedia } from "@/lib/queryKeys";
 import { pushToPartner } from "@/hooks/usePushNotifications";
+import { dashboardPath } from "@/app/router/paths";
 import { usePrivateScope } from "@/hooks/usePrivateScope";
 
 export type Media = Tables<"media"> & { uploader_name?: string | null; taken_at?: string | null; deleted_at?: string | null };
@@ -164,7 +165,7 @@ export async function uploadMediaFile({
     throw dbError;
   }
 
-  void pushToPartner("New Memory Added", `${title} was just uploaded to usMoment`, "/dashboard");
+  void pushToPartner("New Memory Added", `${title} was just uploaded to usMoment`, dashboardPath());
   return data as Media;
 }
 

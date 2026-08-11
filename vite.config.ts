@@ -114,18 +114,6 @@ export default defineConfig(({ mode }) => ({
             },
           },
           {
-            // Supabase REST API — NetworkFirst with short TTL
-            // Falls back to cache when offline or slow
-            urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/i,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "supabase-api-cache",
-              expiration: { maxEntries: 150, maxAgeSeconds: 60 * 5 },
-              networkTimeoutSeconds: 4,
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-          {
             // Supabase Auth endpoints — always network (security critical)
             urlPattern: /^https:\/\/.*\.supabase\.co\/auth\/.*/i,
             handler: "NetworkOnly",

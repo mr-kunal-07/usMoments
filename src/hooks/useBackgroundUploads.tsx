@@ -13,7 +13,7 @@ import { useAllProfiles } from "@/hooks/useProfile";
 import { sendNotification } from "@/hooks/useNotifications";
 import { uploadMediaFile, type Media } from "@/hooks/useMedia";
 import { invalidateMedia, QK } from "@/lib/queryKeys";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/useToast";
 
 type UploadQueueItem = {
   file: File;
