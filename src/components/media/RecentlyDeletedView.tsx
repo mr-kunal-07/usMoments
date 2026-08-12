@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/useToast";
 import { formatDistanceToNow, differenceInDays } from "date-fns";
+import { LazyVideoThumbnail } from "@/components/media/LazyVideoThumbnail";
 
 export function RecentlyDeletedView() {
   const { data: items = [], isLoading } = useRecentlyDeletedMedia();
@@ -78,9 +79,9 @@ export function RecentlyDeletedView() {
               {/* Thumbnail */}
               <div className="aspect-square relative overflow-hidden">
                 {item.file_type === "video" ? (
-                  <video src={url} className="w-full h-full object-cover opacity-60" />
+                  <LazyVideoThumbnail src={url} className="w-full h-full object-cover opacity-60" />
                 ) : (
-                  <img src={url} alt={item.title} className="w-full h-full object-cover opacity-60" />
+                  <img src={url} alt={item.title} className="w-full h-full object-cover opacity-60" loading="lazy" decoding="async" />
                 )}
                 {/* Overlay */}
                 <div className="absolute inset-0 bg-background/40" />

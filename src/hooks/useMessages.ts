@@ -56,6 +56,7 @@ type RealtimeDeletePayload = { old: Record<string, unknown> };
 
 interface UseMessagesOptions {
   markAsRead?: boolean;
+  subscribeToRealtime?: boolean;
 }
 
 export function useMessages(options: UseMessagesOptions = {}) {
@@ -68,6 +69,7 @@ export function useMessages(options: UseMessagesOptions = {}) {
   const channelReadyRef = useRef(false);
   const recoveryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const markAsRead = options.markAsRead ?? false;
+  const subscribeToRealtime = options.subscribeToRealtime ?? false;
 
   const coupleId = couple?.status === "active" ? couple.id : null;
   const qKey = useMemo(() => QK.messages(coupleId), [coupleId]);
@@ -132,7 +134,7 @@ export function useMessages(options: UseMessagesOptions = {}) {
   }, [markAsRead, query.data, coupleId, user, scheduleMarkRead]);
 
   useEffect(() => {
-    if (!coupleId || typeof window === "undefined") return;
+    if (!subscribeToRealtime || !coupleId || typeof window === "undefined") return;
 
     const activeQKey = QK.messages(coupleId);
     const pruneExpired = () => {
@@ -144,7 +146,7 @@ export function useMessages(options: UseMessagesOptions = {}) {
     pruneExpired();
     const intervalId = window.setInterval(pruneExpired, 60_000);
     return () => window.clearInterval(intervalId);
-  }, [coupleId, queryClient]);
+  }, [coupleId, queryClient, subscribeToRealtime]);
 
   // ── Realtime handlers ──────────────────────────────────────────────────────
   // FIX: the root cause of "need to refresh to see messages".
@@ -235,7 +237,7 @@ export function useMessages(options: UseMessagesOptions = {}) {
 
   // ── Realtime subscription ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!coupleId || !user) return;
+    if (!subscribeToRealtime || !coupleId || !user) return;
 
     const refreshMessages = () => {
       queryClient.invalidateQueries({ queryKey: QK.messages(coupleId) });
@@ -312,7 +314,7 @@ export function useMessages(options: UseMessagesOptions = {}) {
         channelRef.current = null;
       }
     };
-  }, [coupleId, user, handleMessageInsert, handleMessageUpdate, handleMessageDelete, handleReactionChange, queryClient]);
+  }, [coupleId, user, handleMessageInsert, handleMessageUpdate, handleMessageDelete, handleReactionChange, queryClient, subscribeToRealtime]);
 
   // ── Send message ───────────────────────────────────────────────────────────
   const sendMessage = useMutation({
@@ -557,4 +559,17 @@ export function useMessages(options: UseMessagesOptions = {}) {
     removeReaction,
     coupleId,
   };
+}
+
+export function useUnreadMessageCount(): number {
+  const { user } = useAuth();
+  const { data: messages = [] } = useMessages();
+
+  return useMemo(
+    () => messages.reduce(
+      (count, message) => count + Number(message.sender_id !== user?.id && !message.read_at),
+      0,
+    ),
+    [messages, user?.id],
+  );
 }

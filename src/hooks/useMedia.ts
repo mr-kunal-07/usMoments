@@ -1,4 +1,4 @@
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Tables } from "@/integrations/supabase/types";
@@ -8,6 +8,9 @@ import { dashboardPath } from "@/app/router/paths";
 import { usePrivateScope } from "@/hooks/usePrivateScope";
 
 export type Media = Tables<"media"> & { uploader_name?: string | null; taken_at?: string | null; deleted_at?: string | null };
+interface UseMediaOptions {
+  enabled?: boolean;
+}
 type UploadMediaInput = {
   file: File;
   title: string;
@@ -16,10 +19,7 @@ type UploadMediaInput = {
   userId: string;
 };
 
-/** Page size for paginated media queries */
-const PAGE_SIZE = 50;
-
-export function useMedia(folderId?: string | null, search?: string) {
+export function useMedia(folderId?: string | null, search?: string, options: UseMediaOptions = {}) {
   const { user } = useAuth();
   const { allowedUserIds, scopeKey } = usePrivateScope();
   return useQuery({
@@ -40,35 +40,7 @@ export function useMedia(folderId?: string | null, search?: string) {
       if (error) throw error;
       return data as Media[];
     },
-    enabled: !!user && allowedUserIds.length > 0,
-  });
-}
-
-/** Infinite-scroll version of media — use for large vaults */
-export function useMediaInfinite(folderId?: string | null, search?: string) {
-  const { user } = useAuth();
-  const { allowedUserIds, scopeKey } = usePrivateScope();
-  return useInfiniteQuery({
-    queryKey: [...QK.mediaInfinite(), folderId, search, scopeKey],
-    staleTime: 30_000,
-    initialPageParam: 0,
-    queryFn: async ({ pageParam = 0 }) => {
-      let query = supabase.from("media").select("*").in("uploaded_by", allowedUserIds).is("deleted_at", null);
-      if (folderId !== undefined) {
-        if (folderId) query = query.eq("folder_id", folderId);
-        else query = query.is("folder_id", null);
-      }
-      if (search) {
-        query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
-      }
-      const { data, error } = await query
-        .order("created_at", { ascending: false })
-        .range(pageParam * PAGE_SIZE, (pageParam + 1) * PAGE_SIZE - 1);
-      if (error) throw error;
-      return { items: data as Media[], nextPage: data.length === PAGE_SIZE ? pageParam + 1 : undefined };
-    },
-    getNextPageParam: (last) => last.nextPage,
-    enabled: !!user && allowedUserIds.length > 0,
+    enabled: options.enabled !== false && !!user && allowedUserIds.length > 0,
   });
 }
 
@@ -95,7 +67,7 @@ export function useRecentlyDeletedMedia() {
   });
 }
 
-export function useStarredMedia() {
+export function useStarredMedia(enabled = true) {
   const { user } = useAuth();
   const { allowedUserIds, scopeKey } = usePrivateScope();
   return useQuery({
@@ -113,7 +85,7 @@ export function useStarredMedia() {
       if (error) throw error;
       return data as Media[];
     },
-    enabled: !!user && allowedUserIds.length > 0,
+    enabled: enabled && !!user && allowedUserIds.length > 0,
   });
 }
 

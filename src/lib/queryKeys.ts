@@ -7,7 +7,6 @@ export const QK = {
   // Media
   media:           (folderId?: string | null, search?: string) => ["media", folderId, search] as const,
   mediaAll:        () => ["media"] as const,
-  mediaInfinite:   () => ["media-infinite"] as const,
   mediaDeleted:    () => ["media", "recently-deleted"] as const,
   mediaStarred:    () => ["media", "starred"] as const,
   storageUsage:    () => ["storage-usage"] as const,
@@ -51,8 +50,7 @@ export const QK = {
   effectivePlan:   (userId?: string) => ["effective-plan", userId] as const,
 } as const;
 
-/** Invalidate both media query variants (list + infinite) together */
+/** Invalidate all media list variants together. */
 export function invalidateMedia(qc: import("@tanstack/react-query").QueryClient) {
   qc.invalidateQueries({ queryKey: QK.mediaAll() });
-  qc.invalidateQueries({ queryKey: QK.mediaInfinite() });
 }

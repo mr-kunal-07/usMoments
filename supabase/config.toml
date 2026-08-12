@@ -9,6 +9,9 @@ verify_jwt = false
 [functions.razorpay-payment-return]
 verify_jwt = false
 
+[functions.admin-audit-log]
+verify_jwt = false
+
 [functions.admin-list-users]
 verify_jwt = false
 

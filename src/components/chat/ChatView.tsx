@@ -28,7 +28,6 @@ import { useTheme } from "@/hooks/useTheme";
 import { useToast } from "@/hooks/useToast";
 import { supabase } from "@/integrations/supabase/client";
 import { invalidateMedia } from "@/lib/queryKeys";
-import { preloadAllAudioMessages, useInfiniteScrollTrigger } from "@/hooks/useMessagesInfinite";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -405,7 +404,6 @@ export function ChatView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isInitialScroll = useRef(true);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const { isNearTop } = useInfiniteScrollTrigger(messagesContainerRef);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const coupleId = couple?.status === "active" ? couple.id : null;
@@ -505,32 +503,6 @@ export function ChatView({
     if (kbOffset <= 0) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [kbOffset]);
-
-  // Preload audio messages for instant playback
-  useEffect(() => {
-    if (messages && messages.length > 0) {
-      void preloadAllAudioMessages(messages);
-    }
-  }, [messages]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const preload = () => preloadEmojiPicker();
-    const browserWindow = window as Window &
-      typeof globalThis & {
-        requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-        cancelIdleCallback?: (handle: number) => void;
-      };
-
-    if (browserWindow.requestIdleCallback && browserWindow.cancelIdleCallback) {
-      const idleId = browserWindow.requestIdleCallback(preload, { timeout: 1200 });
-      return () => browserWindow.cancelIdleCallback?.(idleId);
-    }
-
-    const timeoutId = globalThis.setTimeout(preload, 500);
-    return () => globalThis.clearTimeout(timeoutId);
-  }, []);
 
   // Mark-as-read is handled inside useMessages with a 1s debounce.
   // No duplicate effect needed here.

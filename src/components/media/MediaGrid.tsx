@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { memo, useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Play, MoreVertical, Trash2, Star, Image as ImageIcon, FolderInput, X, CheckSquare, FolderOpen, Keyboard, Download, User, Loader2 } from "lucide-react";
 import { Media, getPublicUrl, useDeleteMedia, useToggleStar, useBulkDeleteMedia, useBulkMoveMedia } from "@/hooks/useMedia";
 import { useFolders } from "@/hooks/useFolders";
@@ -37,6 +37,7 @@ import { Progress } from "@/components/ui/progress";
 import { useIsMobile } from "@/hooks/useMobile";
 import { haptic } from "@/lib/haptics";
 import { downloadMediaAsZip } from "@/lib/downloadUtils";
+import { LazyVideoThumbnail } from "@/components/media/LazyVideoThumbnail";
 
 export type ViewMode = "grid" | "list";
 
@@ -60,7 +61,7 @@ function downloadFile(url: string, filename: string) {
   document.body.removeChild(a);
 }
 
-export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoadMore }: Props) {
+export const MediaGrid = memo(function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoadMore }: Props) {
   const deleteMedia = useDeleteMedia();
   const toggleStar = useToggleStar();
   const bulkDelete = useBulkDeleteMedia();
@@ -71,7 +72,13 @@ export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoad
   const isMobile = useIsMobile();
 
   // Build uploader map: userId -> display_name
-  const uploaderMap = Object.fromEntries(profiles.map(p => [p.user_id, p.display_name ?? p.user_id.slice(0, 8)]));
+  const uploaderMap = useMemo(
+    () => Object.fromEntries(profiles.map((profile) => [
+      profile.user_id,
+      profile.display_name ?? profile.user_id.slice(0, 8),
+    ])),
+    [profiles],
+  );
 
   const [deleteItem, setDeleteItem] = useState<Media | null>(null);
 
@@ -425,6 +432,7 @@ export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoad
               <ContextMenu key={item.id}>
                 <ContextMenuTrigger asChild>
                   <Card
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "240px" }}
                     className={cn(
                       "overflow-hidden group cursor-pointer transition-all duration-200 break-inside-avoid border-border",
                       "hover:shadow-lg hover:-translate-y-0.5 hover:border-border active:scale-[0.985]",
@@ -446,7 +454,7 @@ export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoad
                     >
                       {item.file_type === "video" ? (
                         <>
-                          <video src={getPublicUrl(item.file_path)} className="w-full object-cover" preload="metadata" />
+                          <LazyVideoThumbnail src={getPublicUrl(item.file_path)} className="w-full object-cover" />
                           <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/20 transition-colors">
                             <div className="rounded-full bg-white/20 backdrop-blur-sm p-3">
                               <Play className="h-8 w-8 text-white fill-white" />
@@ -454,7 +462,7 @@ export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoad
                           </div>
                         </>
                       ) : (
-                        <img src={getPublicUrl(item.file_path)} alt={item.title} className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" loading="lazy" />
+                        <img src={getPublicUrl(item.file_path)} alt={item.title} className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" loading="lazy" decoding="async" />
                       )}
 
                       {/* Gradient overlay on hover */}
@@ -538,6 +546,7 @@ export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoad
               <ContextMenu key={item.id}>
                 <ContextMenuTrigger asChild>
                   <div
+                    style={{ contentVisibility: "auto", containIntrinsicSize: "64px" }}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer group transition-all duration-150",
                       "hover:bg-muted/70 border border-transparent hover:border-border/50 active:scale-[0.99]",
@@ -569,11 +578,11 @@ export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoad
                     <div className="h-11 w-11 rounded-lg overflow-hidden bg-muted shrink-0 relative shadow-sm">
                       {item.file_type === "video" ? (
                         <>
-                          <video src={getPublicUrl(item.file_path)} className="w-full h-full object-cover" preload="metadata" />
+                          <LazyVideoThumbnail src={getPublicUrl(item.file_path)} className="w-full h-full object-cover" />
                           <Play className="absolute inset-0 m-auto h-4 w-4 text-white drop-shadow" />
                         </>
                       ) : (
-                        <img src={getPublicUrl(item.file_path)} alt={item.title} className="w-full h-full object-cover" loading="lazy" />
+                        <img src={getPublicUrl(item.file_path)} alt={item.title} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                       )}
                     </div>
 
@@ -726,4 +735,4 @@ export function MediaGrid({ media, loading, onPreview, viewMode, hasMore, onLoad
       </Dialog>
     </>
   );
-}
+});

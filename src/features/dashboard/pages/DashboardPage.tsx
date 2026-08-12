@@ -1,8 +1,7 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useDeferredValue, useRef, useMemo } from "react";
 import { useSwipeNav } from "@/hooks/useSwipeNav";
 import { Search, Upload, Moon, Sun, Monitor, LayoutGrid, List, ArrowUpDown, FolderPlus } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { usePlan } from "@/hooks/useSubscription";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,15 +15,10 @@ import { useMyCouple } from "@/hooks/useCouple";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar, ViewType, FolderViewType } from "@/components/dashboard/AppSidebar";
 import { MediaGrid, ViewMode } from "@/components/media/MediaGrid";
-import { UploadDialog } from "@/components/media/UploadDialog";
-import { MediaPreview } from "@/components/media/MediaPreview";
 import { FolderBreadcrumb } from "@/components/media/FolderBreadcrumb";
 import { NotificationsPanel } from "@/components/notifications/NotificationsPanel";
 import { PartnerBanner } from "@/components/couples/PartnerBanner";
 import { UpgradeBanner } from "@/components/billing/UpgradeBanner";
-import { ChatView } from "@/components/chat/ChatView";
-import { CallModal } from "@/components/chat/CallModal";
-import { UpgradeGateModal } from "@/components/billing/UpgradeGateModal";
 import { MobileBottomNav } from "@/components/dashboard/MobileBottomNav";
 import { PWAInstallPrompt } from "@/components/settings/PWAInstallPrompt";
 import { Button } from "@/components/ui/button";
@@ -47,6 +41,9 @@ import { FolderGridWithSelection } from "@/components/media/FolderGridWithSelect
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { haptic } from "@/lib/haptics";
+import { createFolderContentIndex } from "@/lib/folderContentIndex";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useMessages } from "@/hooks/useMessages";
 import { APP_PATHS, DASHBOARD_VIEWS, dashboardPath, folderPath, isDashboardView } from "@/app/router/paths";
 
 type FileTypeFilter = "all" | "image" | "video";
@@ -81,6 +78,21 @@ const LoveStoryView = lazy(() =>
 );
 const TravelMapView = lazy(() =>
   import("@/components/travel-map/TravelMapView").then((module) => ({ default: module.TravelMapView }))
+);
+const ChatView = lazy(() =>
+  import("@/components/chat/ChatView").then((module) => ({ default: module.ChatView }))
+);
+const CallModal = lazy(() =>
+  import("@/components/chat/CallModal").then((module) => ({ default: module.CallModal }))
+);
+const UploadDialog = lazy(() =>
+  import("@/components/media/UploadDialog").then((module) => ({ default: module.UploadDialog }))
+);
+const MediaPreview = lazy(() =>
+  import("@/components/media/MediaPreview").then((module) => ({ default: module.MediaPreview }))
+);
+const UpgradeGateModal = lazy(() =>
+  import("@/components/billing/UpgradeGateModal").then((module) => ({ default: module.UpgradeGateModal }))
 );
 
 // Constants
@@ -164,8 +176,17 @@ function DeferredView({ children }: { children: React.ReactNode }) {
   );
 }
 
+function DeferredChat({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<div className="h-full w-full bg-muted/20 animate-pulse" />}>
+      {children}
+    </Suspense>
+  );
+}
+
 export default function Dashboard() {
   usePushSubscription();
+  useMessages({ subscribeToRealtime: true });
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -173,7 +194,6 @@ export default function Dashboard() {
   const { toast } = useToast();
   const { theme, cycleTheme } = useTheme();
   const isMobile = useIsMobile();
-  const reduceMotion = useReducedMotion();
 
   // Hooks
   const plan = usePlan();
@@ -195,7 +215,7 @@ export default function Dashboard() {
   const [newFolderName, setNewFolderName] = useState("");
   const [callMinimized, setCallMinimized] = useState(false);
   const createFolder = useCreateFolder();
-  const renameFolder = useRenameFolder(); // add
+  const renameFolder = useRenameFolder();
   const deleteFolder = useDeleteFolder();
   const handleCreateFolder = useCallback(async () => {
     const name = newFolderName.trim();
@@ -225,6 +245,8 @@ export default function Dashboard() {
   const [sortDir, setSortDir] = useState<SortDir>(() =>
     loadPreference<SortDir>(STORAGE_KEYS.SORT_DIR, "desc")
   );
+  const deferredSearch = useDeferredValue(search.trim());
+  const debouncedSearch = useDebouncedValue(search.trim(), 250);
 
   const seenMediaRef = useRef<Set<string>>(new Set());
 
@@ -237,7 +259,6 @@ export default function Dashboard() {
   const isSpecial = useMemo(() => isSpecialView(selectedView), [selectedView]);
   const isChat = selectedView === "chat";
   const isGridView = useMemo(() => !NON_GRID_VIEWS.includes(selectedView as ViewType), [selectedView]);
-  const animateChatNav = isMobile && !reduceMotion;
 
   const folderId = useMemo(() => {
     if (selectedView === "all") return undefined;
@@ -272,39 +293,33 @@ export default function Dashboard() {
   const { data: allMedia = [], isLoading: allMediaLoading } = useMedia(undefined, undefined);
   // regularMedia: respects current folder + search filter
   const { data: regularMedia = [], isLoading: regularLoading } = useMedia(
-    isSpecial && selectedView !== "starred" ? undefined : folderId,
-    search || undefined
+    folderId,
+    debouncedSearch || undefined,
+    { enabled: !isSpecial },
   );
-  const { data: starredMedia = [] } = useStarredMedia();
+  const { data: starredMedia = [], isLoading: starredLoading } = useStarredMedia(selectedView === "starred");
   // Combined loading state
-  const isLoading = selectedView === "all" ? allMediaLoading : regularLoading;
+  const isLoading = selectedView === "all"
+    ? allMediaLoading
+    : selectedView === "starred"
+      ? starredLoading
+      : !isSpecial && regularLoading;
 
-  // Recursively collect all descendant folder IDs for a given folder
-  const getDescendantIds = useCallback(
-    (folderId: string): string[] => {
-      const children = folders.filter((f) => f.parent_id === folderId);
-      return [
-        folderId,
-        ...children.flatMap((c) => getDescendantIds(c.id)),
-      ];
-    },
-    [folders]
+  const folderContentIndex = useMemo(
+    () => createFolderContentIndex(folders, allMedia),
+    [folders, allMedia],
   );
 
   // Helper: enrich a folder list with preview URLs + counts (recursive — includes sub-folders)
   const enrichFolders = useCallback(
     (folderList: typeof folders) =>
       folderList.map((folder) => {
-        // All folder IDs in this subtree (folder + all descendants)
-        const subtreeIds = getDescendantIds(folder.id);
-
-        // All media anywhere in the subtree
-        const subtreeMedia = allMedia.filter((m) => subtreeIds.includes(m.folder_id ?? ""));
+        const subtreeMedia = folderContentIndex.getSubtreeMedia(folder.id);
 
         // For previews prefer direct images first, then fall back to descendant images
-        const directImages = allMedia.filter(
-          (m) => m.folder_id === folder.id && m.file_type === "image"
-        );
+        const directImages = folderContentIndex
+          .getDirectMedia(folder.id)
+          .filter((item) => item.file_type === "image");
         const previewMedia = directImages.length > 0
           ? directImages
           : subtreeMedia.filter((m) => m.file_type === "image");
@@ -315,20 +330,20 @@ export default function Dashboard() {
           previewUrls: previewMedia.slice(0, 4).map((m) => getPublicUrl(m.file_path)),
         };
       }),
-    [allMedia, getDescendantIds]
+    [folderContentIndex]
   );
 
   // Root-level folders only (no parent_id) — shown in "all" view
   const foldersWithPreviews = useMemo(
-    () => enrichFolders(folders.filter((f) => !f.parent_id)),
-    [folders, enrichFolders]
+    () => enrichFolders([...folderContentIndex.getChildren(null)]),
+    [enrichFolders, folderContentIndex]
   );
 
   // Sub-folders of the currently open folder
   const subFoldersWithPreviews = useMemo(() => {
     if (isSpecial) return [];
-    return enrichFolders(folders.filter((f) => f.parent_id === selectedView));
-  }, [folders, enrichFolders, isSpecial, selectedView]);
+    return enrichFolders([...folderContentIndex.getChildren(selectedView)]);
+  }, [enrichFolders, folderContentIndex, isSpecial, selectedView]);
 
   // Media processing
   const rawMedia = useMemo(() => {
@@ -346,14 +361,14 @@ export default function Dashboard() {
 
   // Apply search client-side for "all" view (allMedia has no server-side search)
   const searchFiltered = useMemo(() => {
-    if (selectedView !== "all" || !search.trim()) return typeFiltered;
-    const q = search.trim().toLowerCase();
+    if (selectedView !== "all" || !deferredSearch) return typeFiltered;
+    const q = deferredSearch.toLowerCase();
     return typeFiltered.filter(
       (m) =>
         m.title?.toLowerCase().includes(q) ||
         m.description?.toLowerCase().includes(q)
     );
-  }, [typeFiltered, selectedView, search]);
+  }, [deferredSearch, typeFiltered, selectedView]);
 
   const media = useMemo(() => {
     return [...searchFiltered].sort((a, b) => {
@@ -791,8 +806,8 @@ export default function Dashboard() {
     isLoading,
     media.length,
     isMobile,
-    openAddFolder,        // ← add
-    newFolderName,        // ← add
+    openAddFolder,
+    newFolderName,
     handleCreateFolder,
     createFolder.isPending,
   ]);
@@ -966,162 +981,7 @@ export default function Dashboard() {
         <AppSidebar selectedView={selectedView} onSelectView={gatedNavigate} />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-          {animateChatNav ? (
-            <div className="flex-1 min-h-0 relative overflow-hidden">
-              <AnimatePresence initial={false} mode="wait">
-                {isChat ? (
-                  <motion.div
-                    key="chat"
-                    className="absolute inset-0 flex flex-col min-w-0 min-h-0 overflow-hidden bg-background"
-                    initial={{ x: "100%" }}
-                    animate={{ x: 0 }}
-                    exit={{ x: "100%" }}
-                    transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.28 }}
-                  >
-                    <div className="flex-1 min-h-0 overflow-hidden">
-                      <ChatView
-                        onBack={() => setSelectedView("all")}
-                        onUpgrade={() => setSelectedView("billing")}
-                        callSession={callSession}
-                      />
-                    </div>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="main"
-                    className="absolute inset-0 flex flex-col min-w-0 min-h-0 overflow-hidden bg-background"
-                    initial={{ x: "-100%" }}
-                    animate={{ x: 0 }}
-                    exit={{ x: "-100%" }}
-                    transition={{ type: "tween", ease: [0.22, 1, 0.36, 1], duration: 0.28 }}
-                  >
-                    <header
-                      className="sticky top-0 z-10 bg-background/95 backdrop-blur-xl border-b border-border/60 shrink-0"
-                      style={{ height: "52px" }}
-                    >
-                      <div className="flex items-center h-full px-2 sm:px-4 gap-1.5">
-                        <SidebarTrigger className="shrink-0 h-9 w-9" />
-
-                        {isGridView ? (
-                          <div className="relative flex-1 min-w-0 max-w-[200px] sm:max-w-md">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                            <Input
-                              placeholder="Search..."
-                              className="pl-8 h-8 text-[13px] bg-muted/60 border-transparent focus:border-border rounded-xl"
-                              value={search}
-                              onChange={(e) => setSearch(e.target.value)}
-                            />
-                          </div>
-                        ) : (
-                          <h1 className="text-[15px] font-semibold text-foreground truncate flex-1 sm:hidden">
-                            {pageTitle}
-                          </h1>
-                        )}
-
-                        {renderFileTypeFilter()}
-
-                        <div className="flex items-center gap-0.5 ml-auto shrink-0">
-                          {renderSortMenu()}
-
-                          {isGridView && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 hidden sm:flex"
-                              onClick={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
-                              aria-label={`Switch to ${viewMode === "grid" ? "list" : "grid"} view`}
-                            >
-                              {viewMode === "grid" ? (
-                                <List className="h-4 w-4" />
-                              ) : (
-                                <LayoutGrid className="h-4 w-4" />
-                              )}
-                            </Button>
-                          )}
-
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={cycleTheme}
-                            aria-label={`Switch theme, current mode ${theme}`}
-                          >
-                            {theme === "light" ? (
-                              <Sun className="h-[15px] w-[15px]" />
-                            ) : theme === "dim" ? (
-                              <Monitor className="h-[15px] w-[15px]" />
-                            ) : (
-                              <Moon className="h-[15px] w-[15px]" />
-                            )}
-                          </Button>
-
-                          <NotificationsPanel />
-
-                          {(selectedView === "all" || !isSpecial) && (
-                            <Button
-                              onClick={() => setUploadOpen(true)}
-                              size="sm"
-                              className="gap-1.5 h-8 px-3 hidden sm:flex text-xs rounded-xl"
-                            >
-                              <Upload className="h-3.5 w-3.5" />
-                              Upload
-                            </Button>
-                          )}
-
-                          <button
-                            onClick={() => navigate(APP_PATHS.profile)}
-                            className="flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-xl hover:bg-accent transition-colors shrink-0"
-                            aria-label="Go to profile"
-                          >
-                            <Avatar className="h-7 w-7 ring-2 ring-border">
-                              {profile?.avatar_url && (
-                                <AvatarImage src={profile.avatar_url} alt="Profile" />
-                              )}
-                              <AvatarFallback className="text-[10px] font-semibold">
-                                {profileInitials}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="hidden lg:flex flex-col items-start leading-none">
-                              <span className="text-[11px] font-medium text-foreground truncate max-w-[80px]">
-                                {profile?.display_name ?? user?.email?.split("@")[0] ?? "You"}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground capitalize">
-                                {plan}
-                              </span>
-                            </div>
-                          </button>
-                        </div>
-                      </div>
-                    </header>
-
-                    <PartnerBanner />
-                    <UpgradeBanner
-                      onUpgrade={() => setSelectedView("billing")}
-                      selectedView={selectedView}
-                    />
-
-                    <main
-                      className={cn(
-                        "flex-1 overflow-auto pb-[72px] sm:pb-6",
-                        selectedView !== "settings" &&
-                        selectedView !== "travel-map" &&
-                        "px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6",
-                        dragOverMain && "ring-2 ring-primary ring-inset"
-                      )}
-                      onDragOver={handleMainDragOver}
-                      onDragLeave={handleMainDragLeave}
-                      onDrop={handleMainDrop}
-                      {...swipeHandlers}
-                    >
-                      {renderPageHeader()}
-                      {renderMainContent()}
-                    </main>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <>
+          <>
               {/* Header */}
               {!isChat && (
                 <header
@@ -1233,17 +1093,19 @@ export default function Dashboard() {
 
               {/* Content */}
               {isChat ? (
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <ChatView
-                    onBack={() => setSelectedView("all")}
-                    onUpgrade={() => setSelectedView("billing")}
-                    callSession={callSession}
-                  />
+                <div className="flex-1 min-h-0 overflow-hidden animate-in fade-in-0 slide-in-from-right-2 duration-200 motion-reduce:animate-none">
+                  <DeferredChat>
+                    <ChatView
+                      onBack={() => setSelectedView("all")}
+                      onUpgrade={() => setSelectedView("billing")}
+                      callSession={callSession}
+                    />
+                  </DeferredChat>
                 </div>
               ) : (
                 <main
                   className={cn(
-                    "flex-1 overflow-auto pb-[72px] sm:pb-6",
+                    "flex-1 overflow-auto pb-[72px] sm:pb-6 animate-in fade-in-0 duration-150 motion-reduce:animate-none",
                     selectedView !== "settings" &&
                     selectedView !== "travel-map" &&
                     "px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6",
@@ -1258,25 +1120,30 @@ export default function Dashboard() {
                   {renderMainContent()}
                 </main>
               )}
-            </>
-          )}
+          </>
         </div>
 
         {/* Dialogs & Modals */}
-        <UploadDialog
-          open={uploadOpen}
-          onOpenChange={setUploadOpen}
-          folderId={!isSpecial ? selectedView : null}
-        />
+        {uploadOpen && (
+          <Suspense fallback={null}>
+            <UploadDialog
+              open
+              onOpenChange={setUploadOpen}
+              folderId={!isSpecial ? selectedView : null}
+            />
+          </Suspense>
+        )}
 
         {previewIndex >= 0 && (
-          <MediaPreview
-            media={media}
-            currentIndex={previewIndex}
-            open={previewIndex >= 0}
-            onOpenChange={handlePreviewClose}
-            onNavigate={setPreviewIndex}
-          />
+          <Suspense fallback={null}>
+            <MediaPreview
+              media={media}
+              currentIndex={previewIndex}
+              open
+              onOpenChange={handlePreviewClose}
+              onNavigate={setPreviewIndex}
+            />
+          </Suspense>
         )}
 
         {!isChat && previewIndex < 0 && (
@@ -1287,43 +1154,51 @@ export default function Dashboard() {
           />
         )}
 
-        <CallModal
-          callState={callSession.callState}
-          callType={callSession.callType}
-          incomingCallType={callSession.incomingCallType}
-          partnerName={partnerName}
-          partnerAvatarUrl={partnerProfile?.avatar_url ?? undefined}
-          partnerInitials={partnerInitials}
-          localStream={callSession.localStream}
-          remoteStream={callSession.remoteStream}
-          onAccept={() => void callSession.acceptCall()}
-          onReject={() => callSession.rejectCall()}
-          onHangUp={callSession.hangUp}
-          isMuted={callSession.isMuted}
-          isSpeaker={callSession.isSpeaker}
-          onToggleMute={callSession.toggleMute}
-          onToggleSpeaker={callSession.toggleSpeaker}
-          connectedAt={callSession.connectedAt}
-          partnerOnline={partnerOnline}
-          onBackCamera={() => void callSession.flipCamera()}
-          isFrontCamera={callSession.isFrontCamera}
-          minimized={callMinimized}
-          onMinimize={() => setCallMinimized(true)}
-          onRestore={() => setCallMinimized(false)}
-        />
+        {callSession.callState !== "idle" && (
+          <Suspense fallback={null}>
+            <CallModal
+              callState={callSession.callState}
+              callType={callSession.callType}
+              incomingCallType={callSession.incomingCallType}
+              partnerName={partnerName}
+              partnerAvatarUrl={partnerProfile?.avatar_url ?? undefined}
+              partnerInitials={partnerInitials}
+              localStream={callSession.localStream}
+              remoteStream={callSession.remoteStream}
+              onAccept={() => void callSession.acceptCall()}
+              onReject={() => callSession.rejectCall()}
+              onHangUp={callSession.hangUp}
+              isMuted={callSession.isMuted}
+              isSpeaker={callSession.isSpeaker}
+              onToggleMute={callSession.toggleMute}
+              onToggleSpeaker={callSession.toggleSpeaker}
+              connectedAt={callSession.connectedAt}
+              partnerOnline={partnerOnline}
+              onBackCamera={() => void callSession.flipCamera()}
+              isFrontCamera={callSession.isFrontCamera}
+              minimized={callMinimized}
+              onMinimize={() => setCallMinimized(true)}
+              onRestore={() => setCallMinimized(false)}
+            />
+          </Suspense>
+        )}
 
         <PWAInstallPrompt />
 
-        <UpgradeGateModal
-          open={!!gateModal}
-          onClose={() => setGateModal(null)}
-          onUpgrade={() => {
-            setGateModal(null);
-            setSelectedView("billing");
-          }}
-          featureName={gateModal?.feature ?? ""}
-          requiredPlan={gateModal?.plan ?? "dating"}
-        />
+        {gateModal && (
+          <Suspense fallback={null}>
+            <UpgradeGateModal
+              open
+              onClose={() => setGateModal(null)}
+              onUpgrade={() => {
+                setGateModal(null);
+                setSelectedView("billing");
+              }}
+              featureName={gateModal.feature}
+              requiredPlan={gateModal.plan}
+            />
+          </Suspense>
+        )}
       </div>
     </SidebarProvider>
   );

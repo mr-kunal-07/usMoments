@@ -31,7 +31,7 @@ import { useMedia, useRecentlyDeletedMedia } from "@/hooks/useMedia";
 import { useStorageUsage, useAllProfiles, useProfile } from "@/hooks/useProfile";
 import { useOnThisDay } from "@/hooks/useMemories";
 import { useMyCouple } from "@/hooks/useCouple";
-import { useMessages } from "@/hooks/useMessages";
+import { useUnreadMessageCount } from "@/hooks/useMessages";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,7 @@ import {
 import { cn, formatSize } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { APP_PATHS, type DashboardView } from "@/app/router/paths";
+import { createFolderContentIndex } from "@/lib/folderContentIndex";
 
 export type ViewType = DashboardView;
 
@@ -97,7 +98,7 @@ export function AppSidebar({ selectedView, onSelectView }: Props) {
   const { data: couple } = useMyCouple();
   const { data: profiles = [] } = useAllProfiles();
   const { data: myProfile } = useProfile();
-  const { data: messages = [] } = useMessages();
+  const unreadCount = useUnreadMessageCount();
   const { data: deletedMedia = [] } = useRecentlyDeletedMedia();
 
   const createFolder = useCreateFolder();
@@ -125,11 +126,6 @@ export function AppSidebar({ selectedView, onSelectView }: Props) {
     [partnerId, profiles]
   );
 
-  const unreadCount = useMemo(
-    () => messages.filter((m) => m.sender_id !== user?.id && !m.read_at).length,
-    [messages, user?.id]
-  );
-
   const starredCount = useMemo(() => allMedia.filter((m) => m.is_starred).length, [allMedia]);
 
   const myInitials = useMemo(() => {
@@ -142,37 +138,22 @@ export function AppSidebar({ selectedView, onSelectView }: Props) {
     return name.slice(0, 2).toUpperCase();
   }, [partnerProfile?.display_name]);
 
-  const rootFolders = useMemo(() => folders.filter((f) => !f.parent_id), [folders]);
-
-  // Build a map of direct counts first (folder_id → count)
-  const directCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    allMedia.forEach((m) => {
-      if (!m.folder_id) return;
-      counts[m.folder_id] = (counts[m.folder_id] ?? 0) + 1;
-    });
-    return counts;
-  }, [allMedia]);
-
-  // Recursively sum counts for a folder + all its descendants
-  const getRecursiveCount = useCallback(
-    (folderId: string): number => {
-      const direct = directCounts[folderId] ?? 0;
-      const children = folders.filter((f) => f.parent_id === folderId);
-      const childSum = children.reduce((sum, c) => sum + getRecursiveCount(c.id), 0);
-      return direct + childSum;
-    },
-    [directCounts, folders]
+  const folderContentIndex = useMemo(
+    () => createFolderContentIndex(folders, allMedia),
+    [folders, allMedia],
+  );
+  const rootFolders = useMemo(
+    () => [...folderContentIndex.getChildren(null)],
+    [folderContentIndex],
   );
 
-  // folderCounts now includes all descendant media — used by sidebar badges
   const folderCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     folders.forEach((f) => {
-      counts[f.id] = getRecursiveCount(f.id);
+      counts[f.id] = folderContentIndex.getSubtreeCount(f.id);
     });
     return counts;
-  }, [folders, getRecursiveCount]);
+  }, [folderContentIndex, folders]);
 
   const storageLimit = useMemo(() => getStorageLimit(plan), [plan]);
   const storageLabel = useMemo(() => formatStorageLimit(plan), [plan]);

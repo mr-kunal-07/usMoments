@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Heart, Image as ImageIcon, Video, Star, HardDrive, CalendarHeart, Clock, Camera, ScanLine } from "lucide-react";
 import { cn, formatSize } from "@/lib/utils";
 import type { Media } from "@/hooks/useMedia";
+import { LazyVideoThumbnail } from "@/components/media/LazyVideoThumbnail";
 
 type TimelineMedia = Media & { taken_at?: string | null };
 
@@ -83,7 +84,7 @@ export function MemoriesTimeline({ onPreview }: TimelineProps) {
         const showMonthBanner = idx === 0 || prevMonth !== thisMonth;
 
         return (
-          <div key={key}>
+          <div key={key} style={{ contentVisibility: "auto", containIntrinsicSize: "480px" }}>
             {/* Month / Year separator — shown once per month */}
             {showMonthBanner && (
               <div className="flex items-center gap-3 mb-5 mt-2">
@@ -126,7 +127,7 @@ export function MemoriesTimeline({ onPreview }: TimelineProps) {
                   >
                     {item.file_type === "video" ? (
                       <>
-                        <video src={getPublicUrl(item.file_path)} className="w-full h-full object-cover" preload="metadata" />
+                        <LazyVideoThumbnail src={getPublicUrl(item.file_path)} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                           <Video className="h-6 w-6 text-white drop-shadow" />
                         </div>
@@ -137,6 +138,7 @@ export function MemoriesTimeline({ onPreview }: TimelineProps) {
                         alt={item.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         loading="lazy"
+                        decoding="async"
                       />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />

@@ -1,6 +1,6 @@
 import {
   createContext, useContext, useEffect, useRef,
-  useState, useCallback, useReducer,
+  useState, useCallback, useMemo, useReducer,
   type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -379,7 +379,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [startAction, endAction]);
 
-  const value: AuthContextType = {
+  const value = useMemo<AuthContextType>(() => ({
     user: state.user,
     session: state.session,
     bootstrapping: state.bootstrapping,
@@ -392,7 +392,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signOut,
     resetPasswordForEmail,
     signInWithOAuth,
-  };
+  }), [
+    actionLoading,
+    authError,
+    clearAuthError,
+    resetPasswordForEmail,
+    signIn,
+    signInWithOAuth,
+    signOut,
+    signUp,
+    state.bootstrapping,
+    state.session,
+    state.sessionExpired,
+    state.user,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

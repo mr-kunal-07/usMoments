@@ -68,6 +68,16 @@ export default defineConfig(({ mode }) => ({
         // Inject push SW handler into the generated service worker
         importScripts: ["/push-sw.js"],
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        globIgnores: [
+          "**/emoji-picker-react.esm-*.js",
+          "**/vendor-map-*.js",
+          "**/vendor-motion-*.js",
+          "**/TravelMapView-*.{js,css}",
+          "**/ChatView-*.js",
+          "**/CallModal-*.js",
+          "**/LoveStoryView-*.js",
+          "**/AnniversariesView-*.js",
+        ],
         // Limit cache size to prevent stale bloat on mobile devices
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3 MB
         runtimeCaching: [

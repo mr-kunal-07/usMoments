@@ -2,8 +2,7 @@ import { useCallback, memo, useMemo } from "react";
 import { Home, CalendarHeart, Upload, MessageSquareMore, MapPinned } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ViewType, FolderViewType } from "@/components/dashboard/AppSidebar";
-import { useAuth } from "@/hooks/useAuth";
-import { useMessages } from "@/hooks/useMessages";
+import { useUnreadMessageCount } from "@/hooks/useMessages";
 import { haptic } from "@/lib/haptics";
 
 interface MobileBottomNavProps {
@@ -188,13 +187,7 @@ export const MobileBottomNav = memo(function MobileBottomNav({
   onSelectView,
   onUpload,
 }: MobileBottomNavProps) {
-  const { user } = useAuth();
-  const { data: messages = [] } = useMessages();
-
-  const unreadCount = useMemo(
-    () => messages.filter((message) => message.sender_id !== user?.id && !message.read_at).length,
-    [messages, user?.id]
-  );
+  const unreadCount = useUnreadMessageCount();
 
   const uploadEnabled = useMemo(
     () => isAllFilesView(selectedView),

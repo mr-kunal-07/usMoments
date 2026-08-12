@@ -54,7 +54,7 @@ function FolderIcon({ previewUrls }: { previewUrls?: string[] }) {
                 <div className="relative w-full h-full bg-card border border-border rounded-xl shadow-md rotate-[-2deg] p-1 pb-5">
                     <div className="relative w-full h-full bg-muted rounded-lg overflow-hidden border border-border/40">
                         {preview ? (
-                            <img src={preview} alt="Collection preview" className="w-full h-full object-cover" draggable="false" />
+                            <img src={preview} alt="Collection preview" className="w-full h-full object-cover" draggable="false" loading="lazy" decoding="async" />
                         ) : (
                             <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground/40">
                                 <ImageIcon className="w-5 h-5 sm:w-6 sm:h-6 mb-1 stroke-[1.5]" />

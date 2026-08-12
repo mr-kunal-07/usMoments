@@ -47,6 +47,42 @@ interface RazorpayResponse {
 
 export type BillingPlan = "dating" | "soulmate";
 
+class CheckoutError extends Error {
+  constructor(
+    message: string,
+    readonly title = "Payment failed",
+  ) {
+    super(message);
+    this.name = "CheckoutError";
+  }
+}
+
+async function readOrderResponse(response: Response) {
+  const data = await response.json().catch(() => null) as {
+    error?: string;
+    order_id?: string;
+    amount?: number;
+    currency?: string;
+    key_id?: string;
+    description?: string;
+  } | null;
+
+  if (response.status === 503) {
+    throw new CheckoutError(
+      "Payments are temporarily unavailable. Please try again later.",
+      "Payments unavailable",
+    );
+  }
+  if (!response.ok || data?.error) {
+    throw new CheckoutError(data?.error || "Unable to start checkout");
+  }
+  if (!data?.order_id || !data.amount || !data.currency || !data.key_id) {
+    throw new CheckoutError("The payment service returned an incomplete order");
+  }
+
+  return data as Required<Pick<typeof data, "order_id" | "amount" | "currency" | "key_id">> & typeof data;
+}
+
 export function useRazorpayCheckout() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -58,10 +94,8 @@ export function useRazorpayCheckout() {
     setLoading(true);
 
     try {
-      await loadRazorpayScript();
-
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
+      if (!session) throw new CheckoutError("Sign in again before starting checkout", "Session expired");
 
       const orderRes = await fetch(
         `${appConfig.functionsUrl}/razorpay-create-order`,
@@ -75,10 +109,8 @@ export function useRazorpayCheckout() {
         }
       );
 
-      const orderData = await orderRes.json();
-      if (!orderRes.ok || orderData.error) {
-        throw new Error(orderData.error || "Failed to create order");
-      }
+      const orderData = await readOrderResponse(orderRes);
+      await loadRazorpayScript();
 
       const returnTo = `${window.location.origin}${APP_PATHS.paymentReturn}`;
       const callbackUrl = new URL(`${appConfig.functionsUrl}/razorpay-payment-return`);
@@ -127,9 +159,9 @@ export function useRazorpayCheckout() {
         rzp.open();
       });
     } catch (err) {
-      console.error("Checkout error:", err);
+      if (!(err instanceof CheckoutError)) console.error("Checkout error:", err);
       toast({
-        title: "Payment failed",
+        title: err instanceof CheckoutError ? err.title : "Payment failed",
         description: err instanceof Error ? err.message : "Something went wrong",
         variant: "destructive",
       });
