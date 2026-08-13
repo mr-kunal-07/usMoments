@@ -3,7 +3,7 @@ import { isBillingPlan, PLAN_CONFIG } from "../../supabase/functions/_shared/bil
 
 describe("billing plan configuration", () => {
   it("stores INR prices in paise", () => {
-    expect(PLAN_CONFIG.dating.amount).toBe(2_900);
+    expect(PLAN_CONFIG.dating.amount).toBe(100);
     expect(PLAN_CONFIG.soulmate.amount).toBe(9_900);
     expect(PLAN_CONFIG.dating.currency).toBe("INR");
   });

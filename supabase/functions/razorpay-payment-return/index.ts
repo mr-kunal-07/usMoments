@@ -1,20 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
-
-function getAllowedOrigins(): Set<string> {
-  return new Set(
-    (Deno.env.get("APP_ORIGINS") ?? "")
-      .split(",")
-      .map((origin) => origin.trim().replace(/\/$/, ""))
-      .filter(Boolean),
-  );
-}
+import { getAllowedOrigins, getCorsHeaders, isAllowedOrigin } from "../_shared/cors.ts";
 
 function getSafeReturnTo(raw: string | null): URL | null {
   if (!raw) return null;
@@ -34,7 +19,10 @@ function getSafeReturnTo(raw: string | null): URL | null {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const corsHeaders = getCorsHeaders(req, "GET, POST, OPTIONS");
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: isAllowedOrigin(req.headers.get("Origin")) ? 204 : 403, headers: corsHeaders });
+  }
   if (req.method !== "GET" && req.method !== "POST") {
     return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }

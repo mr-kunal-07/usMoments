@@ -1,6 +1,4 @@
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useCallback, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { appConfig } from "@/lib/config";
@@ -47,6 +45,9 @@ interface RazorpayResponse {
 
 export type BillingPlan = "dating" | "soulmate";
 
+const ORDER_TIMEOUT_MS = 15_000;
+const SDK_TIMEOUT_MS = 12_000;
+
 class CheckoutError extends Error {
   constructor(
     message: string,
@@ -83,45 +84,60 @@ async function readOrderResponse(response: Response) {
   return data as Required<Pick<typeof data, "order_id" | "amount" | "currency" | "key_id">> & typeof data;
 }
 
-export function useRazorpayCheckout() {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [loading, setLoading] = useState(false);
+async function createOrder(plan: BillingPlan, accessToken: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), ORDER_TIMEOUT_MS);
 
-  const checkout = async (plan: BillingPlan) => {
-    if (!user) return;
+  try {
+    return await fetch(`${appConfig.functionsUrl}/razorpay-create-order`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ plan }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new CheckoutError("The payment service took too long to respond. Please retry.", "Checkout timed out");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+export function useRazorpayCheckout() {
+  const { user, session } = useAuth();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const checkoutInProgress = useRef(false);
+
+  const checkout = useCallback(async (plan: BillingPlan) => {
+    if (!user || checkoutInProgress.current) return;
+    checkoutInProgress.current = true;
     setLoading(true);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new CheckoutError("Sign in again before starting checkout", "Session expired");
 
-      const orderRes = await fetch(
-        `${appConfig.functionsUrl}/razorpay-create-order`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ plan }),
-        }
-      );
-
+      const [orderRes] = await Promise.all([
+        createOrder(plan, session.access_token),
+        loadRazorpayScript(),
+      ]);
       const orderData = await readOrderResponse(orderRes);
-      await loadRazorpayScript();
 
       const returnTo = `${window.location.origin}${APP_PATHS.paymentReturn}`;
       const callbackUrl = new URL(`${appConfig.functionsUrl}/razorpay-payment-return`);
       callbackUrl.searchParams.set("return_to", returnTo);
 
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         const rzp = new window.Razorpay({
           key: orderData.key_id,
           amount: orderData.amount,
           currency: orderData.currency,
-          name: "CoupleVault",
+          name: "usMoments",
           description: orderData.description,
           order_id: orderData.order_id,
           prefill: { email: user.email },
@@ -151,6 +167,7 @@ export function useRazorpayCheckout() {
           },
           modal: {
             ondismiss: () => {
+              checkoutInProgress.current = false;
               setLoading(false);
               resolve();
             },
@@ -165,20 +182,40 @@ export function useRazorpayCheckout() {
         description: err instanceof Error ? err.message : "Something went wrong",
         variant: "destructive",
       });
+      checkoutInProgress.current = false;
       setLoading(false);
     }
-  };
+  }, [session, toast, user]);
 
   return { checkout, loading };
 }
 
+let razorpayScriptPromise: Promise<void> | null = null;
+
 function loadRazorpayScript(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.Razorpay) return resolve();
+  if (window.Razorpay) return Promise.resolve();
+  if (razorpayScriptPromise) return razorpayScriptPromise;
+
+  razorpayScriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Razorpay SDK"));
+    script.async = true;
+    const timeoutId = window.setTimeout(() => {
+      script.remove();
+      razorpayScriptPromise = null;
+      reject(new CheckoutError("Razorpay could not load on this connection. Please retry.", "Checkout timed out"));
+    }, SDK_TIMEOUT_MS);
+    script.onload = () => {
+      window.clearTimeout(timeoutId);
+      resolve();
+    };
+    script.onerror = () => {
+      window.clearTimeout(timeoutId);
+      razorpayScriptPromise = null;
+      reject(new CheckoutError("Razorpay could not load. Check your connection and retry."));
+    };
     document.body.appendChild(script);
   });
+
+  return razorpayScriptPromise;
 }

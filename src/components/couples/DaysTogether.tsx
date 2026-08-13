@@ -79,8 +79,8 @@ export function DaysTogether() {
         onClick={() => handleOpenChange(true)}
         onPointerEnter={() => void loadRelationshipDatePicker()}
         onFocus={() => void loadRelationshipDatePicker()}
-        className="group relative w-full overflow-hidden rounded-md px-3 py-2.5 text-left transition-[filter,transform] hover:brightness-[1.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(30_28%_44%)] focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar active:scale-[0.99]"
-        style={{ background: theme.tileBackground, border: `1px solid ${theme.border}` }}
+        className="group relative w-full overflow-hidden rounded-md border-0 px-3 py-2.5 text-left outline-none transition-[filter,transform] hover:brightness-[1.025] focus:outline-none focus-visible:brightness-95 active:scale-[0.99]"
+        style={{ background: theme.tileBackground }}
         aria-label={savedDate ? "Edit your relationship start date" : "Set your relationship start date"}
       >
         <span className="absolute inset-y-0 left-0 w-0.5" style={{ background: theme.mutedText }} aria-hidden />

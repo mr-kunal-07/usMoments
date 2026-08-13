@@ -115,7 +115,7 @@ export function RelationshipDatePicker({
               value={getMonth(visibleMonth).toString()}
               onValueChange={(value) => changeVisibleMonth(getYear(visibleMonth), Number(value))}
             >
-              <SelectTrigger className="h-8 rounded-md text-xs font-semibold sm:h-9" style={{ background: theme.softSurface, borderColor: theme.border, color: theme.text }}>
+              <SelectTrigger className="h-8 rounded-md text-xs font-semibold outline-none focus:outline-none focus:ring-0 focus:ring-offset-0 sm:h-9" style={{ background: theme.softSurface, borderColor: theme.border, color: theme.text }}>
                 <SelectValue aria-label="Month" />
               </SelectTrigger>
               <SelectContent className="border-[hsl(36_20%_70%/0.6)] bg-[hsl(40_30%_96%)] text-[hsl(30_20%_28%)]">
@@ -129,7 +129,7 @@ export function RelationshipDatePicker({
               value={getYear(visibleMonth).toString()}
               onValueChange={(value) => changeVisibleMonth(Number(value), getMonth(visibleMonth))}
             >
-              <SelectTrigger className="h-8 rounded-md text-xs font-semibold sm:h-9" style={{ background: theme.softSurface, borderColor: theme.border, color: theme.text }}>
+              <SelectTrigger className="h-8 rounded-md text-xs font-semibold outline-none focus:outline-none focus:ring-0 focus:ring-offset-0 sm:h-9" style={{ background: theme.softSurface, borderColor: theme.border, color: theme.text }}>
                 <SelectValue aria-label="Year" />
               </SelectTrigger>
               <SelectContent className="max-h-64 border-[hsl(36_20%_70%/0.6)] bg-[hsl(40_30%_96%)] text-[hsl(30_20%_28%)]">

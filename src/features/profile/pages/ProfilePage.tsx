@@ -1,595 +1,237 @@
-
-import {
-  useState,
-  useRef,
-  useCallback,
-  useEffect,
-  type ChangeEvent,
-  type KeyboardEvent,
-  type ElementType,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
-import {
-  useProfile,
-  useUpdateProfile,
-  useUploadAvatar,
-} from "@/hooks/useProfile";
+import { ArrowLeft, Camera, Check, ChevronRight, Heart, Loader2, Save } from "lucide-react";
+import { PartnerConnect } from "@/components/couples/PartnerConnect";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuth } from "@/hooks/useAuth";
+import { useMyCouple } from "@/hooks/useCouple";
+import { useProfile, useUpdateProfile, useUploadAvatar } from "@/hooks/useProfile";
 import { useToast } from "@/hooks/useToast";
-import {
-  ArrowLeft,
-  Camera,
-  Loader2,
-  Save,
-  Heart,
-  Mail,
-  CheckCircle2,
-  Sparkles,
-  User,
-} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { PartnerConnect } from "@/components/couples/PartnerConnect";
-import { cn } from "@/lib/utils";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
 
 const MAX_DISPLAY_NAME_LENGTH = 40;
-const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
-const SAVED_FEEDBACK_DURATION_MS = 2500;
+const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Derive initials from a display name or email. */
 function getInitials(value: string): string {
-  const parts = value.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length > 1) {
+    return `${parts[0][0]}${parts.at(-1)?.[0] ?? ""}`.toUpperCase();
   }
-  return value.slice(0, 2).toUpperCase();
+  return (parts[0] ?? "U").slice(0, 2).toUpperCase();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Sub-components
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ── Section ──────────────────────────────────────────────────────────────────
-
-interface SectionProps {
-  icon?: ElementType;
-  title?: string;
-  description?: string;
-  children?: ReactNode;
-  accent?: boolean;
-  className?: string;
+function getUserDisplayName(
+  profileName: string | null | undefined,
+  metadata: Record<string, unknown> | undefined,
+  email: string | undefined,
+): string {
+  const metadataName = metadata?.display_name ?? metadata?.full_name ?? metadata?.name;
+  return profileName?.trim() || (typeof metadataName === "string" ? metadataName.trim() : "") || email?.split("@")[0] || "";
 }
 
-function Section({
-  icon: Icon,
-  title,
-  description,
-  children,
-  accent = false,
-  className,
-}: SectionProps) {
-  const hasHeader = Icon || title || description;
-
-  return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-card overflow-hidden shadow-sm",
-        className
-      )}
-    >
-      {hasHeader && (
-        <div
-          className={cn(
-            "p-3 sm:px-6 sm:py-5 border-b border-border flex items-start gap-3",
-            accent && "bg-gradient-to-r from-primary/5 to-transparent"
-          )}
-        >
-          {Icon && (
-            <div
-              className={cn(
-                " flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-                accent
-                  ? "bg-primary/10 text-primary"
-                  : "bg-muted text-muted-foreground"
-              )}
-              aria-hidden="true"
-            >
-              <Icon className="h-4 w-4" />
-            </div>
-          )}
-
-          {(title || description) && (
-            <div>
-              {title && (
-                <p className="text-sm font-semibold text-foreground leading-snug">
-                  {title}
-                </p>
-              )}
-              {description && (
-                <p className="text-xs  text-muted-foreground leading-relaxed">
-                  {description}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {children && (
-        <div className="px-5 py-5 sm:px-6 sm:py-6">{children}</div>
-      )}
-    </div>
-  );
-}
-
-// ── Field ────────────────────────────────────────────────────────────────────
-
-interface FieldProps {
-  label: string;
-  hint?: string;
-  htmlFor?: string;
-  children: ReactNode;
-  rightLabel?: ReactNode;
-}
-
-function Field({ label, hint, htmlFor, children, rightLabel }: FieldProps) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <Label
-          htmlFor={htmlFor}
-          className="text-xs font-medium text-foreground/70 uppercase tracking-wide"
-        >
-          {label}
-        </Label>
-        {rightLabel && (
-          <span className="text-xs text-muted-foreground">{rightLabel}</span>
-        )}
-      </div>
-      {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
-    </div>
-  );
-}
-
-// ── SaveButton ───────────────────────────────────────────────────────────────
-
-type SaveState = "idle" | "saving" | "saved";
-
-interface SaveButtonProps {
-  state: SaveState;
-  onClick: () => void;
-}
-
-function SaveButton({ state, onClick }: SaveButtonProps) {
-  const isDisabled = state === "saving" || state === "saved";
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={isDisabled}
-      aria-label={
-        state === "saving"
-          ? "Saving profile…"
-          : state === "saved"
-            ? "Profile saved"
-            : "Save profile changes"
-      }
-      className={cn(
-        "w-full h-10 rounded-lg flex items-center justify-center gap-2",
-        "text-sm font-medium transition-all duration-200",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
-        state === "saved"
-          ? "bg-green-500/10 text-green-600 border border-green-200 dark:border-green-900/50"
-          : "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98]",
-        isDisabled && "cursor-not-allowed opacity-80"
-      )}
-    >
-      {state === "saving" && (
-        <>
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          Saving…
-        </>
-      )}
-      {state === "saved" && (
-        <>
-          <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-          Saved!
-        </>
-      )}
-      {state === "idle" && (
-        <>
-          <Save className="h-4 w-4" aria-hidden="true" />
-          Save Changes
-        </>
-      )}
-    </button>
-  );
-}
-
-// ── AvatarHero ────────────────────────────────────────────────────────────────
-
-type AvatarSize = "sm" | "md" | "lg";
-
-const avatarSizeMap: Record<AvatarSize, string> = {
-  sm: "h-16 w-16",
-  md: "h-20 w-20 sm:h-24 sm:w-24",
-  lg: "h-24 w-24 lg:h-28 lg:w-28",
-};
-
-interface AvatarHeroProps {
-  avatarUrl: string | null;
-  initials: string;
-  displayName: string;
-  email: string;
-  isUploading: boolean;
-  onCameraClick: () => void;
-  size?: AvatarSize;
-}
-
-function AvatarHero({
-  avatarUrl,
-  initials,
-  displayName,
-  email,
-  isUploading,
-  onCameraClick,
-  size = "md",
-}: AvatarHeroProps) {
-  return (
-    <div className="flex flex-col items-center gap-3 text-center">
-      <div className="relative">
-        <Avatar
-          className={cn(
-            avatarSizeMap[size],
-            "ring-4 ring-background shadow-xl"
-          )}
-        >
-          {avatarUrl && <AvatarImage src={avatarUrl} alt="Your profile photo" />}
-          <AvatarFallback className="text-xl font-semibold bg-primary/10 text-primary">
-            {initials}
-          </AvatarFallback>
-        </Avatar>
-
-        <button
-          type="button"
-          onClick={onCameraClick}
-          disabled={isUploading}
-          aria-label={isUploading ? "Uploading photo…" : "Change profile photo"}
-          className={cn(
-            "absolute bottom-0 right-0 h-7 w-7 sm:h-8 sm:w-8 rounded-full shadow-lg",
-            "bg-primary text-primary-foreground",
-            "flex items-center justify-center",
-            "ring-2 ring-background",
-            "transition-all hover:scale-110 active:scale-95",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
-            "disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
-          )}
-        >
-          {isUploading ? (
-            <Loader2
-              className="h-3 w-3 sm:h-3.5 sm:w-3.5 animate-spin"
-              aria-hidden="true"
-            />
-          ) : (
-            <Camera className="h-3 w-3 sm:h-3.5 sm:w-3.5" aria-hidden="true" />
-          )}
-        </button>
-      </div>
-
-      <div className="min-w-0">
-        <p className="text-sm font-semibold text-foreground leading-snug truncate max-w-[200px]">
-          {displayName || (
-            <span className="text-muted-foreground italic">No name set</span>
-          )}
-        </p>
-        <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[200px]">
-          {email}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Main Page Component
-// ─────────────────────────────────────────────────────────────────────────────
-
-export default function Profile() {
+export default function ProfilePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { data: profile } = useProfile();
+  const { data: couple } = useMyCouple();
   const updateProfile = useUpdateProfile();
   const uploadAvatar = useUploadAvatar();
   const { toast } = useToast();
-
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hasEditedName = useRef(false);
 
-  // ── Local state ──────────────────────────────────────────────────────────
-  const [displayName, setDisplayName] = useState<string>("");
+  const [displayName, setDisplayName] = useState("");
+  const [savedName, setSavedName] = useState("");
   const [localAvatarUrl, setLocalAvatarUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [isSaving, setIsSaving] = useState(false);
+  const [showPartnerSetup, setShowPartnerSetup] = useState(false);
 
-  // Tracks whether the user has manually edited the field this session.
-  // Prevents the async profile re-fetch from overwriting a live edit.
-  const userHasEdited = useRef(false);
-
-  // Sync display name from the server exactly once when data first arrives.
-  // Priority: profiles table -> auth user_metadata -> email prefix.
-  // This covers two Supabase patterns:
-  //   1. display_name stored in a `profiles` table  (useProfile)
-  //   2. display_name stored in auth user_metadata  (set during signUp)
   useEffect(() => {
-    if (userHasEdited.current) return; // never clobber a live edit
+    if (hasEditedName.current) return;
+    const name = getUserDisplayName(profile?.display_name, user?.user_metadata, user?.email);
+    setDisplayName(name);
+    setSavedName(name);
+  }, [profile?.display_name, user?.email, user?.user_metadata]);
 
-    const fromProfile = profile?.display_name;
-    const fromMeta = user?.user_metadata?.display_name as string | undefined;
-    const fromEmail = user?.email?.split("@")[0];
-
-    const resolved = fromProfile || fromMeta || fromEmail || "";
-    if (resolved) setDisplayName(resolved);
-  }, [profile?.display_name, user?.user_metadata?.display_name, user?.email]);
-
-  // ── Derived values ───────────────────────────────────────────────────────
-  // initials are computed at the call site from live `displayName` state
-  // so the avatar card always reflects what the user is currently typing.
   const currentAvatarUrl = localAvatarUrl ?? profile?.avatar_url ?? null;
-  const remainingChars = MAX_DISPLAY_NAME_LENGTH - displayName.length;
+  const trimmedName = displayName.trim();
+  const profileChanged = Boolean(trimmedName) && trimmedName !== savedName.trim();
+  const partnerConnected = couple?.status === "active";
+  const partnerSetupVisible = couple?.status === "pending" || showPartnerSetup;
 
-  // ── Avatar upload ────────────────────────────────────────────────────────
-  const handleAvatarChange = useCallback(
-    async (e: ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
+  const handleAvatarChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
 
-      // Reset input early so the same file can be re-selected if needed
-      if (fileInputRef.current) fileInputRef.current.value = "";
-
-      if (file.size > MAX_AVATAR_SIZE_BYTES) {
-        toast({
-          title: "Image too large",
-          description: "Please choose a file under 5 MB.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      setIsUploading(true);
-      try {
-        // Upload file → get URL → persist to profile (atomic)
-        const url = await uploadAvatar.mutateAsync(file);
-        setLocalAvatarUrl(url);
-        await updateProfile.mutateAsync({ avatarUrl: url });
-        toast({
-          title: "Photo updated",
-          description: "Your profile photo has been saved.",
-        });
-      } catch (err) {
-        console.error("[Profile] Avatar upload failed:", err);
-        toast({
-          title: "Upload failed",
-          description: "Something went wrong. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsUploading(false);
-      }
-    },
-    [uploadAvatar, updateProfile, toast]
-  );
-
-  // ── Save profile ─────────────────────────────────────────────────────────
-  const handleSave = useCallback(async () => {
-    setSaveState("saving");
-    const trimmed = displayName.trim();
-
-    try {
-      // 1. Persist to your profiles table (or wherever useUpdateProfile writes).
-      await updateProfile.mutateAsync({ displayName: trimmed || undefined });
-
-      // 2. Also update Supabase auth user_metadata so the name survives a
-      //    hard refresh even if the profiles table query hasn't re-fetched yet.
-      //    This is a no-op if your backend already mirrors the two sources.
-      if (trimmed) {
-        const { error: metaErr } = await supabase.auth.updateUser({
-          data: { display_name: trimmed },
-        });
-        if (metaErr) console.warn("[Profile] user_metadata sync failed:", metaErr);
-      }
-
-      setSaveState("saved");
-      toast({ title: "Profile saved", description: "Your changes have been applied." });
-      setTimeout(() => setSaveState("idle"), SAVED_FEEDBACK_DURATION_MS);
-    } catch (err) {
-      console.error("[Profile] Save failed:", err);
-      setSaveState("idle");
-      toast({
-        title: "Save failed",
-        description: "Something went wrong. Please try again.",
-        variant: "destructive",
-      });
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Choose an image file", variant: "destructive" });
+      return;
     }
-  }, [displayName, updateProfile, toast]);
+    if (file.size > MAX_AVATAR_SIZE_BYTES) {
+      toast({ title: "Image is too large", description: "Choose an image smaller than 5 MB.", variant: "destructive" });
+      return;
+    }
 
-  // ── Keyboard shortcut on input ───────────────────────────────────────────
-  const handleNameKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter") handleSave();
-    },
-    [handleSave]
-  );
+    setIsUploading(true);
+    try {
+      const avatarUrl = await uploadAvatar.mutateAsync(file);
+      await updateProfile.mutateAsync({ avatarUrl });
+      setLocalAvatarUrl(avatarUrl);
+      toast({ title: "Photo updated" });
+    } catch (error) {
+      console.error("[profile] avatar upload failed", error);
+      toast({ title: "Photo could not be updated", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  }, [toast, updateProfile, uploadAvatar]);
 
-  // ── Open file picker ─────────────────────────────────────────────────────
-  const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
+  const handleSave = useCallback(async () => {
+    if (!profileChanged || isSaving) return;
+    setIsSaving(true);
+    try {
+      await updateProfile.mutateAsync({ displayName: trimmedName });
+      const { error } = await supabase.auth.updateUser({ data: { display_name: trimmedName } });
+      if (error) console.warn("[profile] auth metadata sync failed", error);
+      setDisplayName(trimmedName);
+      setSavedName(trimmedName);
+      hasEditedName.current = false;
+      toast({ title: "Profile saved" });
+    } catch (error) {
+      console.error("[profile] save failed", error);
+      toast({ title: "Profile could not be saved", description: "Please try again.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [isSaving, profileChanged, toast, trimmedName, updateProfile]);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
+  const handleNameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter" && profileChanged) void handleSave();
+  };
+
   return (
     <div className="min-h-screen bg-background">
-
-      {/* ── Hidden file input ── */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         className="sr-only"
-        aria-hidden="true"
-        tabIndex={-1}
         onChange={handleAvatarChange}
+        aria-label="Choose profile photo"
       />
 
-      {/* ── Sticky header ── */}
-      <header className="sticky top-0 z-20 bg-background/90 backdrop-blur-md border-b border-border">
-        <div className="mx-auto max-w-5xl px-4 h-14 flex items-center gap-3">
+      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
+        <div className="mx-auto flex h-12 max-w-2xl items-center gap-2 px-3 sm:h-14 sm:px-5">
           <button
             type="button"
             onClick={() => navigate(-1)}
+            className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label="Go back"
-            className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-              "text-muted-foreground hover:bg-accent hover:text-foreground transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
-            )}
           >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            <ArrowLeft className="h-4 w-4" />
           </button>
-          <h1 className="text-sm font-semibold text-foreground">
-            Profile Settings
-          </h1>
+          <h1 className="text-sm font-semibold text-foreground">Profile</h1>
         </div>
       </header>
 
-      {/* ── Page body ── */}
-      <main className="mx-auto max-w-5xl px-4 py-6 sm:py-8 pb-16">
-        {/*
-         * Layout:
-         *   Mobile  (<lg): single column
-         *   Desktop (≥lg): fixed sidebar [280px] + fluid main content
-         */}
-        <div className="lg:grid lg:grid-cols-[280px_1fr] lg:gap-6 xl:grid-cols-[300px_1fr] xl:gap-8">
-
-          {/* ═══ LEFT SIDEBAR ═══════════════════════════════════════════════ */}
-          <aside className="space-y-4 mb-5 lg:mb-0">
-
-            {/* Avatar card */}
-            <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-              {/* Decorative gradient band */}
-              <div
-                className="h-20 sm:h-24 bg-gradient-to-br from-primary/20 via-primary/10 to-transparent relative"
-                aria-hidden="true"
-              >
-                <Sparkles className="absolute top-3 right-3 h-4 w-4 text-primary/40" />
-              </div>
-
-              {/* Avatar — overlaps the gradient */}
-              <div className="px-5 pb-5 -mt-10 sm:-mt-12 flex flex-col items-center gap-3">
-                <AvatarHero
-                  avatarUrl={currentAvatarUrl}
-                  initials={getInitials(displayName || user?.email || "U")}
-                  displayName={displayName}
-                  email={user?.email ?? ""}
-                  isUploading={isUploading}
-                  onCameraClick={openFilePicker}
-                  size="lg"
-                />
-                <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-                  Tap the camera icon to update your photo
-                </p>
-              </div>
-            </div>
-          </aside>
-
-          {/* ═══ RIGHT CONTENT ══════════════════════════════════════════════ */}
-          <div className="space-y-4">
-
-            {/* ── Profile form ── */}
-            <Section
-              icon={User}
-              title="Personal Info"
-              description="Update your display name and profile photo"
-            >
-              <div className="space-y-5">
-
-                {/* Display name */}
-                <Field
-                  label="Display Name"
-                  htmlFor="display-name"
-                  rightLabel={
-                    <span
-                      className={cn(
-                        remainingChars <= 10
-                          ? "text-destructive"
-                          : "text-muted-foreground"
-                      )}
-                    >
-                      {remainingChars} left
-                    </span>
-                  }
-                >
-                  <Input
-                    id="display-name"
-                    value={displayName}
-                    onChange={(e) => {
-                      userHasEdited.current = true;
-                      setDisplayName(e.target.value);
-                    }}
-                    onKeyDown={handleNameKeyDown}
-                    placeholder="Enter your display name"
-                    maxLength={MAX_DISPLAY_NAME_LENGTH}
-                    autoComplete="name"
-                    className="h-10"
-                  />
-                </Field>
-
-                {/* Email (read-only) */}
-                <Field label="Email" htmlFor="email">
-                  <div className="relative">
-                    <Mail
-                      className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
-                      aria-hidden="true"
-                    />
-                    <Input
-                      id="email"
-                      value={user?.email ?? ""}
-                      disabled
-                      readOnly
-                      aria-label="Email address (cannot be changed)"
-                      className="pl-9 h-10 text-muted-foreground bg-muted/40 cursor-not-allowed"
-                    />
-                  </div>
-                </Field>
-
-                {/* Save button */}
-                <SaveButton state={saveState} onClick={handleSave} />
-              </div>
-            </Section>
-
-            {/* ── Partner connect ── */}
-            <Section
-              icon={Heart}
-              title="Partner Access"
-              description="Link your partner's account to share this private vault and chat space"
-              accent
-            >
-              <PartnerConnect />
-            </Section>
-
+      <main className="mx-auto w-full max-w-2xl space-y-8 px-3 pb-12 pt-5 sm:px-5 sm:pt-7">
+        <section className="space-y-4">
+          <div className="border-b border-border/70 pb-3">
+            <h2 className="text-base font-semibold text-foreground">Your details</h2>
+            <p className="mt-1 text-xs text-muted-foreground">This is how your name and photo appear to your partner.</p>
           </div>
-        </div>
+
+          <div className="flex items-center gap-3">
+            <div className="relative shrink-0">
+              <Avatar className="h-16 w-16 border border-border">
+                {currentAvatarUrl && <AvatarImage src={currentAvatarUrl} alt={trimmedName || "Profile"} />}
+                <AvatarFallback className="font-semibold">{getInitials(trimmedName || user?.email || "U")}</AvatarFallback>
+              </Avatar>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="absolute -bottom-0.5 -right-0.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                aria-label="Change profile photo"
+              >
+                {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Profile photo</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">JPG or PNG, max 5 MB</p>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="profile-display-name" className="text-xs">Display name</Label>
+              <span className="text-[11px] text-muted-foreground">{displayName.length}/{MAX_DISPLAY_NAME_LENGTH}</span>
+            </div>
+            <Input
+              id="profile-display-name"
+              value={displayName}
+              onChange={(event) => {
+                hasEditedName.current = true;
+                setDisplayName(event.target.value);
+              }}
+              onKeyDown={handleNameKeyDown}
+              maxLength={MAX_DISPLAY_NAME_LENGTH}
+              autoComplete="name"
+              className="h-9"
+            />
+          </div>
+
+          <div className="flex min-w-0 items-center gap-3 py-1 text-xs">
+            <span className="shrink-0 text-muted-foreground">Email</span>
+            <span className="min-w-0 truncate font-medium text-foreground">{user?.email}</span>
+          </div>
+
+          {profileChanged && (
+            <Button type="button" size="sm" className="h-9 w-full sm:w-fit" onClick={() => void handleSave()} disabled={isSaving}>
+              {isSaving ? <Loader2 className="animate-spin" /> : <Save />}
+              Save changes
+            </Button>
+          )}
+        </section>
+
+        <section className="space-y-4">
+          <div className="border-b border-border/70 pb-3">
+            <h2 className="text-base font-semibold text-foreground">Partner</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Share one private vault with your person.</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => !partnerConnected && setShowPartnerSetup((value) => !value)}
+            disabled={partnerConnected}
+            className="flex min-h-14 w-full items-center gap-3 border-y border-border/70 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Heart className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-foreground">
+                {partnerConnected ? "Partner connected" : couple?.status === "pending" ? "Invitation pending" : "Connect your partner"}
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {partnerConnected ? "Your shared vault is active" : couple?.status === "pending" ? "Share your code or enter theirs" : "Invite them or enter their invite code"}
+              </span>
+            </span>
+            {partnerConnected ? <Check className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          </button>
+
+          {partnerSetupVisible && !partnerConnected && (
+            <div className="rounded-md border border-border bg-muted/20 p-3 sm:p-4">
+              <PartnerConnect />
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );

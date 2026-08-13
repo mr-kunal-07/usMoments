@@ -66,12 +66,12 @@ export function useMessages(options: UseMessagesOptions = {}) {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const channelInstanceIdRef = useRef(`messages-${Math.random().toString(36).slice(2, 10)}`);
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const channelReadyRef = useRef(false);
-  const recoveryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingReadIdsRef = useRef(new Set<string>());
   const markAsRead = options.markAsRead ?? false;
   const subscribeToRealtime = options.subscribeToRealtime ?? false;
 
   const coupleId = couple?.status === "active" ? couple.id : null;
+  const userId = user?.id;
   const qKey = useMemo(() => QK.messages(coupleId), [coupleId]);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
@@ -102,36 +102,52 @@ export function useMessages(options: UseMessagesOptions = {}) {
 
   // ── Debounced mark-as-read ─────────────────────────────────────────────────
   const scheduleMarkRead = useCallback((unreadIds: string[]) => {
+    const nextIds = unreadIds.filter((id) => !pendingReadIdsRef.current.has(id));
+    if (!nextIds.length) return;
+
+    nextIds.forEach((id) => pendingReadIdsRef.current.add(id));
     if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
-    markReadTimerRef.current = setTimeout(() => {
-      supabase
+    markReadTimerRef.current = setTimeout(async () => {
+      const ids = [...pendingReadIdsRef.current];
+      if (!ids.length) return;
+
+      const readAt = new Date().toISOString();
+      const { error } = await supabase
         .from("messages" as never)
-        .update({ read_at: new Date().toISOString() } as never)
-        .in("id", unreadIds)
-        .then(() => {
-          // FIX: patch read_at directly in cache — old code called
-          // invalidateQueries here which triggered a full refetch every second
-          queryClient.setQueryData<Message[]>(qKey, prev =>
-            prev?.map(m =>
-              unreadIds.includes(m.id)
-                ? { ...m, read_at: new Date().toISOString() }
-                : m
-            ) ?? []
-          );
-        });
-    }, 1_000);
+        .update({ read_at: readAt } as never)
+        .in("id", ids)
+        .is("read_at", null);
+
+      if (!error) {
+        queryClient.setQueryData<Message[]>(qKey, (previous) =>
+          previous?.map((message) =>
+            ids.includes(message.id) ? { ...message, read_at: readAt } : message
+          ) ?? []
+        );
+      } else {
+        console.error("[messages] failed to mark messages as read", error);
+      }
+
+      ids.forEach((id) => pendingReadIdsRef.current.delete(id));
+      markReadTimerRef.current = null;
+    }, 250);
   }, [queryClient, qKey]);
 
   useEffect(() => {
     if (!markAsRead) return;
-    if (!coupleId || !user || !query.data?.length) return;
-    const unread = query.data.filter(m => m.sender_id !== user.id && !m.read_at);
+    if (!coupleId || !userId || !query.data?.length) return;
+    const unread = query.data.filter(m => m.sender_id !== userId && !m.read_at);
     if (!unread.length) return;
     scheduleMarkRead(unread.map(m => m.id));
+  }, [markAsRead, query.data, coupleId, userId, scheduleMarkRead]);
+
+  useEffect(() => {
+    const pendingReadIds = pendingReadIdsRef.current;
     return () => {
       if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+      pendingReadIds.clear();
     };
-  }, [markAsRead, query.data, coupleId, user, scheduleMarkRead]);
+  }, []);
 
   useEffect(() => {
     if (!subscribeToRealtime || !coupleId || typeof window === "undefined") return;
@@ -228,41 +244,57 @@ export function useMessages(options: UseMessagesOptions = {}) {
     );
   }, [queryClient, qKey]);
 
-  // Reactions are fetched via a join in the messages query.
-  // Targeted invalidation here is the cleanest way to re-run the join —
-  // it's a single small query and only triggers when reactions actually change.
-  const handleReactionChange = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: qKey });
+  const handleReactionInsert = useCallback((payload: RealtimeInsertPayload) => {
+    const reaction = payload.new as unknown as MessageReaction;
+    queryClient.setQueryData<Message[]>(qKey, (previous) =>
+      previous?.map((message) => {
+        if (message.id !== reaction.message_id) return message;
+
+        const reactions = (message.reactions ?? []).filter((current) =>
+          current.id !== reaction.id
+          && !(current.id.startsWith("optimistic-")
+            && current.user_id === reaction.user_id
+            && current.emoji === reaction.emoji)
+        );
+        return { ...message, reactions: [...reactions, reaction] };
+      }) ?? []
+    );
+  }, [queryClient, qKey]);
+
+  const handleReactionUpdate = useCallback((payload: RealtimeUpdatePayload) => {
+    const reaction = payload.new as unknown as MessageReaction;
+    queryClient.setQueryData<Message[]>(qKey, (previous) =>
+      previous?.map((message) => ({
+        ...message,
+        reactions: message.reactions?.map((current) =>
+          current.id === reaction.id ? reaction : current
+        ),
+      })) ?? []
+    );
+  }, [queryClient, qKey]);
+
+  const handleReactionDelete = useCallback((payload: RealtimeDeletePayload) => {
+    const reaction = payload.old as unknown as Pick<MessageReaction, "id">;
+    queryClient.setQueryData<Message[]>(qKey, (previous) =>
+      previous?.map((message) => ({
+        ...message,
+        reactions: message.reactions?.filter((current) => current.id !== reaction.id),
+      })) ?? []
+    );
   }, [queryClient, qKey]);
 
   // ── Realtime subscription ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!subscribeToRealtime || !coupleId || !user) return;
+    if (!subscribeToRealtime || !coupleId || !userId) return;
 
     const refreshMessages = () => {
       queryClient.invalidateQueries({ queryKey: QK.messages(coupleId) });
-    };
-
-    const stopRecoveryPolling = () => {
-      if (recoveryTimerRef.current) {
-        clearInterval(recoveryTimerRef.current);
-        recoveryTimerRef.current = null;
-      }
-    };
-
-    const startRecoveryPolling = () => {
-      if (recoveryTimerRef.current) return;
-      recoveryTimerRef.current = setInterval(() => {
-        void queryClient.invalidateQueries({ queryKey: QK.messages(coupleId) });
-      }, 5_000);
     };
 
     // Clean up any stale channel before creating a new one
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
     }
-    stopRecoveryPolling();
-    channelReadyRef.current = false;
 
     channelRef.current = supabase
       .channel(`messages:${coupleId}:${channelInstanceIdRef.current}`)
@@ -283,38 +315,37 @@ export function useMessages(options: UseMessagesOptions = {}) {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "message_reactions" },
-        handleReactionChange,
+        { event: "INSERT", schema: "public", table: "message_reactions" },
+        handleReactionInsert,
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "message_reactions" },
+        handleReactionUpdate,
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "message_reactions" },
+        handleReactionDelete,
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          const wasReady = channelReadyRef.current;
-          channelReadyRef.current = true;
-          stopRecoveryPolling();
-          if (!wasReady) {
-            refreshMessages();
-          }
+          refreshMessages();
           return;
         }
 
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          channelReadyRef.current = false;
-          startRecoveryPolling();
-          if (status !== "CLOSED") {
-            console.warn(`[messages] realtime channel status: ${status}`);
-          }
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn(`[messages] realtime channel status: ${status}`);
         }
       });
 
     return () => {
-      channelReadyRef.current = false;
-      stopRecoveryPolling();
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
       }
     };
-  }, [coupleId, user, handleMessageInsert, handleMessageUpdate, handleMessageDelete, handleReactionChange, queryClient, subscribeToRealtime]);
+  }, [coupleId, userId, handleMessageInsert, handleMessageUpdate, handleMessageDelete, handleReactionInsert, handleReactionUpdate, handleReactionDelete, queryClient, subscribeToRealtime]);
 
   // ── Send message ───────────────────────────────────────────────────────────
   const sendMessage = useMutation({

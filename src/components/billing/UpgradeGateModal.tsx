@@ -1,5 +1,11 @@
 import { Crown, Gem, HeartHandshake, X, Zap } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +30,7 @@ const PLAN_META: Record<RequiredPlan, {
 }> = {
   dating: {
     label: "Dating",
-    price: "₹29/mo",
+    price: "₹1/mo",
     icon: HeartHandshake,
     iconBg: "bg-primary/10",
     iconColor: "text-primary",
@@ -48,32 +54,35 @@ export function UpgradeGateModal({ open, onClose, onUpgrade, featureName, requir
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-sm p-0 overflow-hidden border-0 shadow-2xl rounded-2xl">
+      <DialogContent className="grid max-h-[calc(100dvh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-sm grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-xl border-0 p-0 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl [&>button:last-child]:hidden">
         {/* Hero gradient strip */}
-        <div className={cn("relative bg-gradient-to-br p-6 pb-5", meta.gradient)}>
-          <button
-            onClick={onClose}
-            className="absolute right-4 top-4 p-1 rounded-full text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        <div className={cn("relative bg-gradient-to-br px-5 pb-4 pt-5 sm:p-6 sm:pb-5", meta.gradient)}>
+          <DialogClose asChild>
+            <button
+              type="button"
+              className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background/40 hover:text-foreground focus:outline-none focus-visible:bg-background/50 sm:right-4 sm:top-4"
+              aria-label="Close upgrade dialog"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </DialogClose>
 
-          <div className={cn("h-12 w-12 rounded-xl flex items-center justify-center mb-4 ring-1 ring-primary/20", meta.iconBg)}>
+          <div className={cn("mb-3 flex h-11 w-11 items-center justify-center rounded-xl ring-1 ring-primary/20 sm:mb-4 sm:h-12 sm:w-12", meta.iconBg)}>
             <Icon className={cn("h-6 w-6", meta.iconColor)} strokeWidth={1.5} />
           </div>
 
-          <h2 className="text-lg font-bold font-heading text-foreground leading-snug">
+          <DialogTitle className="pr-8 text-lg font-bold font-heading text-foreground leading-snug">
             Unlock {featureName}
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+          </DialogTitle>
+          <DialogDescription className="mt-1 pr-2 text-sm leading-relaxed text-muted-foreground">
             This feature is part of the{" "}
             <span className="font-semibold text-foreground">{meta.label}</span> plan
             and above.
-          </p>
+          </DialogDescription>
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5 bg-card space-y-4">
+        <div className="space-y-4 overflow-y-auto overscroll-contain bg-card px-5 py-4 sm:px-6 sm:py-5">
           {/* Perks */}
           <ul className="space-y-2">
             {meta.perks.map(perk => (
@@ -93,12 +102,12 @@ export function UpgradeGateModal({ open, onClose, onUpgrade, featureName, requir
           </p>
 
           {/* CTA */}
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1 rounded-xl" onClick={onClose}>
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" className="min-w-0 rounded-xl px-2" onClick={onClose}>
               Maybe later
             </Button>
             <Button
-              className="flex-1 rounded-xl gap-1.5 font-semibold"
+              className="min-w-0 gap-1.5 rounded-xl px-2 font-semibold"
               onClick={() => { onClose(); onUpgrade(); }}
             >
               <Crown className="h-4 w-4" />

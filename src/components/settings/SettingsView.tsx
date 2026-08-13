@@ -1,31 +1,30 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { APP_PATHS } from "@/app/router/paths";
 import {
   Bell,
   Camera,
+  Check,
+  ChevronRight,
   Crown,
   Download,
   Eye,
   EyeOff,
   Fingerprint,
   Heart,
-  KeyRound,
   Loader2,
   Lock,
   LogOut,
+  Monitor,
   Moon,
   Save,
-  ShieldCheck,
-  Smartphone,
   Sun,
-  Monitor,
 } from "lucide-react";
+import { APP_PATHS } from "@/app/router/paths";
 import { useAuth } from "@/hooks/useAuth";
 import { useMyCouple } from "@/hooks/useCouple";
 import { useProfile, useUpdateProfile, useUploadAvatar } from "@/hooks/useProfile";
-import { usePlan } from "@/hooks/useSubscription";
-import { useTheme } from "@/hooks/useTheme";
+import { usePlan, type Plan } from "@/hooks/useSubscription";
+import { useTheme, type Theme } from "@/hooks/useTheme";
 import {
   APP_LOCK_EVENT,
   clearBiometricCredentialId,
@@ -37,22 +36,97 @@ import {
   setStoredLockMethod,
 } from "@/hooks/useAppLock";
 import { useToast } from "@/hooks/useToast";
+import { enablePushNotifications, pushSupportState } from "@/hooks/usePushNotifications";
+import { usePWAInstall } from "@/hooks/usePWAInstall";
 import { PartnerConnect } from "@/components/couples/PartnerConnect";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { enablePushNotifications, pushSupportState } from "@/hooks/usePushNotifications";
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { cn } from "@/lib/utils";
 
 interface Props {
   onNavigateBilling: () => void;
+}
+
+function SectionHeading({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="border-b border-border/70 pb-3">
+      <h2 className="text-base font-semibold text-foreground">{title}</h2>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function SettingRow({
+  icon,
+  title,
+  description,
+  action,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  action?: ReactNode;
+  onClick?: () => void;
+}) {
+  const content = (
+    <>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 text-left">
+        <span className="block text-sm font-medium text-foreground">{title}</span>
+        <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{description}</span>
+      </span>
+      {action && <span className="shrink-0">{action}</span>}
+    </>
+  );
+
+  return onClick ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-14 w-full touch-manipulation items-center gap-3 rounded-md px-1 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {content}
+    </button>
+  ) : (
+    <div className="flex min-h-14 items-center gap-3 px-1 py-2">{content}</div>
+  );
+}
+
+function StatusPill({ children, positive = false }: { children: ReactNode; positive?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold",
+        positive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+      )}
+    >
+      {positive && <Check className="h-3 w-3" />}
+      {children}
+    </span>
+  );
+}
+
+function getPlanCopy(plan: Plan) {
+  if (plan === "soulmate") return { name: "Soulmate", detail: "Full access" };
+  if (plan === "dating") return { name: "Dating", detail: "Premium plan" };
+  return { name: "Single", detail: "Free plan" };
 }
 
 export function SettingsView({ onNavigateBilling }: Props) {
@@ -64,13 +138,17 @@ export function SettingsView({ onNavigateBilling }: Props) {
   const { data: couple } = useMyCouple();
   const { theme, setTheme } = useTheme();
   const { toast } = useToast();
-  const rawPlan = usePlan();
-  const plan = rawPlan as string;
+  const { canInstall, install, isIOS, isInstalled, isInstalling } = usePWAInstall();
+  const plan = usePlan();
+  const planCopy = getPlanCopy(plan);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [displayName, setDisplayName] = useState(profile?.display_name ?? user?.email?.split("@")[0] ?? "");
+  const fallbackName = user?.email?.split("@")[0] ?? "";
+  const [displayName, setDisplayName] = useState(fallbackName);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [showPartnerSetup, setShowPartnerSetup] = useState(false);
 
   const [lockMethod, setLockMethod] = useState<"pin" | "biometric" | null>(() => getLockMethod());
   const [hasPin, setHasPin] = useState(() => hasConfiguredPin());
@@ -80,33 +158,20 @@ export function SettingsView({ onNavigateBilling }: Props) {
   const [showPin, setShowPin] = useState(false);
   const biometricSupported = typeof window !== "undefined" && "PublicKeyCredential" in window;
 
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(() => pushSupportState().permission);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">(
+    () => pushSupportState().permission,
+  );
   const [isEnablingPush, setIsEnablingPush] = useState(false);
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as Window & { MSStream?: unknown }).MSStream;
 
   useEffect(() => {
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-    setIsInstalled(standalone);
-
-    const handler = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
-
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, []);
+    if (profile?.display_name) setDisplayName(profile.display_name);
+  }, [profile?.display_name]);
 
   useEffect(() => {
     const syncLockState = () => {
       setLockMethod(getLockMethod());
       setHasPin(hasConfiguredPin());
     };
-
     window.addEventListener("storage", syncLockState);
     window.addEventListener(APP_LOCK_EVENT, syncLockState);
     return () => {
@@ -116,31 +181,44 @@ export function SettingsView({ onNavigateBilling }: Props) {
   }, []);
 
   const currentAvatarUrl = avatarUrl ?? profile?.avatar_url ?? null;
-  const initials = (profile?.display_name ?? user?.email ?? "U").slice(0, 2).toUpperCase();
+  const currentName = profile?.display_name ?? (fallbackName || "User");
+  const initials = currentName.slice(0, 2).toUpperCase();
+  const normalizedDisplayName = displayName.trim();
+  const profileChanged = normalizedDisplayName.length > 0 && normalizedDisplayName !== currentName.trim();
 
   const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    event.target.value = "";
     if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Choose an image file", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Image must be under 5 MB", variant: "destructive" });
+      return;
+    }
 
     setIsUploading(true);
     try {
       const url = await uploadAvatar.mutateAsync(file);
       setAvatarUrl(url);
       await updateProfile.mutateAsync({ avatarUrl: url });
-      toast({ title: "Avatar updated" });
+      toast({ title: "Profile photo updated" });
     } catch {
-      toast({ title: "Error uploading avatar", variant: "destructive" });
+      toast({ title: "Could not update photo", variant: "destructive" });
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleSave = async () => {
+  const handleSaveProfile = async () => {
+    if (!normalizedDisplayName) return;
     try {
-      await updateProfile.mutateAsync({ displayName: displayName.trim() || undefined });
+      await updateProfile.mutateAsync({ displayName: normalizedDisplayName });
       toast({ title: "Profile saved" });
     } catch {
-      toast({ title: "Error saving profile", variant: "destructive" });
+      toast({ title: "Could not save profile", variant: "destructive" });
     }
   };
 
@@ -148,17 +226,15 @@ export function SettingsView({ onNavigateBilling }: Props) {
     setIsEnablingPush(true);
     try {
       const result = await enablePushNotifications();
-      const { permission } = pushSupportState();
-      setPushPermission(permission);
-
+      setPushPermission(pushSupportState().permission);
       if (result === "granted") {
-        toast({ title: "Notifications enabled", description: "Push notifications are now active on this device." });
+        toast({ title: "Notifications enabled" });
       } else if (result === "denied") {
-        toast({ title: "Notifications blocked", description: "Browser notification permission is denied for this app.", variant: "destructive" });
+        toast({ title: "Notifications are blocked in browser settings", variant: "destructive" });
       } else if (result === "unsupported") {
-        toast({ title: "Not supported", description: "Push notifications are not supported on this device/browser.", variant: "destructive" });
+        toast({ title: "Notifications are not supported on this device", variant: "destructive" });
       } else {
-        toast({ title: "Open the installed app first", description: "Install usMoments to your home screen before enabling push notifications." });
+        toast({ title: "Install usMoments before enabling notifications" });
       }
     } finally {
       setIsEnablingPush(false);
@@ -166,11 +242,9 @@ export function SettingsView({ onNavigateBilling }: Props) {
   };
 
   const handleInstall = async () => {
-    if (!installPrompt) return;
-
-    await installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === "accepted") setInstallPrompt(null);
+    const outcome = await install();
+    if (outcome === "accepted") toast({ title: "Installing usMoments" });
+    if (outcome === "error") toast({ title: "Could not start installation", variant: "destructive" });
   };
 
   const resetPinForm = () => {
@@ -182,15 +256,13 @@ export function SettingsView({ onNavigateBilling }: Props) {
 
   const handleSavePin = async () => {
     if (pinInput.length < 4) {
-      toast({ title: "PIN must be at least 4 digits", variant: "destructive" });
+      toast({ title: "Use at least 4 digits", variant: "destructive" });
       return;
     }
-
     if (pinInput !== pinConfirm) {
-      toast({ title: "PINs don't match", variant: "destructive" });
+      toast({ title: "PINs do not match", variant: "destructive" });
       return;
     }
-
     await savePin(pinInput);
     setStoredLockMethod("pin");
     setHasPin(true);
@@ -206,20 +278,16 @@ export function SettingsView({ onNavigateBilling }: Props) {
     setHasPin(false);
     setLockMethod(nextMethod);
     resetPinForm();
-    toast({ title: "PIN lock removed" });
+    toast({ title: "PIN removed" });
   };
 
   const handleEnableBiometric = async () => {
-    if (!biometricSupported) {
-      toast({ title: "Biometrics not supported on this device", variant: "destructive" });
-      return;
-    }
-
+    if (!biometricSupported) return;
     try {
       const credential = (await navigator.credentials.create({
         publicKey: {
           challenge: crypto.getRandomValues(new Uint8Array(32)),
-          rp: { name: "usMomentss", id: window.location.hostname },
+          rp: { name: "usMoments", id: window.location.hostname },
           user: {
             id: new TextEncoder().encode(user?.id ?? "user"),
             name: user?.email ?? "user",
@@ -229,26 +297,22 @@ export function SettingsView({ onNavigateBilling }: Props) {
             { type: "public-key", alg: -7 },
             { type: "public-key", alg: -257 },
           ],
-          authenticatorSelection: {
-            authenticatorAttachment: "platform",
-            userVerification: "required",
-          },
+          authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" },
           timeout: 60_000,
         },
       })) as PublicKeyCredential | null;
-
       if (!credential) return;
 
-      const credIdBase64 = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
-      saveBiometricCredentialId(credIdBase64);
+      const credentialId = btoa(String.fromCharCode(...new Uint8Array(credential.rawId)));
+      saveBiometricCredentialId(credentialId);
       setStoredLockMethod("biometric");
       setLockMethod("biometric");
       toast({ title: "Biometric lock enabled" });
-    } catch (error: unknown) {
+    } catch (error) {
       if (error instanceof DOMException && error.name === "NotAllowedError") {
         toast({ title: "Biometric setup cancelled" });
       } else {
-        toast({ title: "Biometric not available on this device", variant: "destructive" });
+        toast({ title: "Biometric lock is unavailable", variant: "destructive" });
       }
     }
   };
@@ -261,366 +325,332 @@ export function SettingsView({ onNavigateBilling }: Props) {
     toast({ title: "Biometric lock disabled" });
   };
 
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    try {
+      await signOut();
+      navigate(APP_PATHS.auth);
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
+
   return (
-    <div className="mx-auto max-w-lg space-y-5 p-4 pb-24 sm:p-6 sm:pb-8">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Your Profile</CardTitle>
-          <CardDescription className="text-xs">Manage your display name and avatar</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="flex items-center gap-4">
-            <div className="relative shrink-0">
-              <Avatar className="h-16 w-16 ring-2 ring-border">
-                {currentAvatarUrl && <AvatarImage src={currentAvatarUrl} alt="Avatar" />}
-                <AvatarFallback className="text-lg">{initials}</AvatarFallback>
-              </Avatar>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute bottom-0 right-0 rounded-full bg-primary p-1.5 text-primary-foreground shadow-md transition-colors hover:bg-primary/90"
-              >
-                {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarChange}
+    <div className="mx-auto w-full max-w-2xl px-3 pb-24 pt-4 sm:px-5 sm:pb-10 sm:pt-6">
+      <main className="space-y-8">
+          <section className="space-y-4">
+            <SectionHeading
+              title="Account"
+              description="Your profile, partner connection, and plan."
+            />
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+              <div className="flex items-center gap-3 sm:block">
+                <div className="relative shrink-0">
+                  <Avatar className="h-14 w-14 border border-border sm:h-16 sm:w-16">
+                    {currentAvatarUrl && <AvatarImage src={currentAvatarUrl} alt={currentName} />}
+                    <AvatarFallback className="text-lg font-semibold">{initials}</AvatarFallback>
+                  </Avatar>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="absolute -bottom-0.5 -right-0.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground shadow-sm transition-transform active:scale-95 disabled:opacity-60"
+                    aria-label="Change profile photo"
+                  >
+                    {isUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                  </button>
+                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+                </div>
+                <p className="text-[11px] text-muted-foreground sm:mt-1.5 sm:max-w-16 sm:text-center">JPG or PNG, max 5 MB</p>
+              </div>
+
+              <div className="grid min-w-0 flex-1 gap-2.5">
+                <div className="space-y-1">
+                  <Label htmlFor="settings-display-name" className="text-xs">Display name</Label>
+                  <Input
+                    id="settings-display-name"
+                    value={displayName}
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    maxLength={50}
+                    autoComplete="name"
+                    className="h-9"
+                  />
+                </div>
+                <div className="flex min-w-0 items-center gap-3 py-1 text-xs">
+                  <span className="shrink-0 text-muted-foreground">Email</span>
+                  <span className="min-w-0 truncate font-medium text-foreground">{user?.email}</span>
+                </div>
+                {profileChanged && (
+                  <Button
+                    type="button"
+                    onClick={() => void handleSaveProfile()}
+                    disabled={updateProfile.isPending}
+                    size="sm"
+                    className="h-9 w-full sm:w-fit"
+                  >
+                    {updateProfile.isPending ? <Loader2 className="animate-spin" /> : <Save />}
+                    Save changes
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="divide-y divide-border/70 border-y border-border/70">
+              <SettingRow
+                icon={<Heart className="h-4 w-4" />}
+                title="Partner"
+                description={couple?.status === "active" ? "Connected to your shared vault" : "Invite or join your partner"}
+                action={couple?.status === "active"
+                  ? <StatusPill positive>Connected</StatusPill>
+                  : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                onClick={couple?.status === "active" ? undefined : () => setShowPartnerSetup((value) => !value)}
+              />
+              <SettingRow
+                icon={<Crown className="h-4 w-4" />}
+                title={`${planCopy.name} plan`}
+                description={planCopy.detail}
+                action={<ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                onClick={onNavigateBilling}
               />
             </div>
 
-            <div className="flex-1 space-y-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Display Name</Label>
-                <Input
-                  value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
-                  placeholder="Your name"
-                  className="h-8 text-sm"
-                />
+            {showPartnerSetup && couple?.status !== "active" && (
+              <div className="rounded-md border border-border bg-muted/20 p-3 sm:p-4">
+                <PartnerConnect />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Email</Label>
-                <Input value={user?.email ?? ""} disabled className="h-8 text-sm text-muted-foreground" />
-              </div>
-            </div>
-          </div>
-
-          <Button onClick={() => void handleSave()} disabled={updateProfile.isPending} size="sm" className="w-full">
-            {updateProfile.isPending ? (
-              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Save className="mr-2 h-3.5 w-3.5" />
             )}
-            Save Profile
-          </Button>
-        </CardContent>
-      </Card>
+          </section>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Heart className="h-4 w-4 fill-primary text-primary" /> Partner
-          </CardTitle>
-          <CardDescription className="text-xs">Link your partner so you share the vault together</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {couple?.status === "active" ? (
-            <div className="flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/8 px-3 py-2.5">
-              <Heart className="h-4 w-4 shrink-0 fill-primary text-primary" />
-              <span className="text-sm font-medium text-foreground">Partner connected</span>
-            </div>
-          ) : (
-            <PartnerConnect />
-          )}
-        </CardContent>
-      </Card>
+          <section className="space-y-4">
+            <SectionHeading
+              title="Preferences"
+              description="Choose how usMoments looks and alerts you."
+            />
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Appearance</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-start gap-3">
-            {theme === "light" ? (
-              <Sun className="mt-0.5 h-4 w-4 text-muted-foreground" />
-            ) : theme === "dim" ? (
-              <Monitor className="mt-0.5 h-4 w-4 text-muted-foreground" />
-            ) : (
-              <Moon className="mt-0.5 h-4 w-4 text-muted-foreground" />
-            )}
             <div>
-              <p className="text-sm font-medium">Theme</p>
-              <p className="text-xs text-muted-foreground">Choose the look for the whole app</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            <Button
-              type="button"
-              variant={theme === "light" ? "default" : "outline"}
-              className="h-10 gap-2 rounded-lg"
-              onClick={() => setTheme("light")}
-            >
-              <Sun className="h-4 w-4" />
-              Light
-            </Button>
-            <Button
-              type="button"
-              variant={theme === "dim" ? "default" : "outline"}
-              className="h-10 gap-2 rounded-lg"
-              onClick={() => setTheme("dim")}
-            >
-              <Monitor className="h-4 w-4" />
-              Dim
-            </Button>
-            <Button
-              type="button"
-              variant={theme === "dark" ? "default" : "outline"}
-              className="h-10 gap-2 rounded-lg"
-              onClick={() => setTheme("dark")}
-            >
-              <Moon className="h-4 w-4" />
-              Dark
-            </Button>
-          </div>
-
-          <div className="rounded-lg border border-border/70 bg-muted/40 px-3 py-2">
-            <p className="text-xs text-muted-foreground">
-              `Dim` keeps the dark look softer. `Dark` matches the full auth-style deep theme.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldCheck className="h-4 w-4 text-primary" /> App Lock
-          </CardTitle>
-          <CardDescription className="text-xs">Protect your vault with a PIN or device biometrics</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {lockMethod && (
-            <div className="flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/8 px-3 py-2.5">
-              {lockMethod === "biometric" ? (
-                <Fingerprint className="h-4 w-4 shrink-0 text-primary" />
-              ) : (
-                <KeyRound className="h-4 w-4 shrink-0 text-primary" />
-              )}
-              <span className="text-sm font-medium text-foreground">
-                {lockMethod === "biometric" ? "Biometric lock active" : "PIN lock active"}
-              </span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Fingerprint className="h-4 w-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm font-medium">Fingerprint / Face ID</p>
-                <p className="text-xs text-muted-foreground">
-                  {biometricSupported
-                    ? "Use this device's biometric prompt to unlock"
-                    : "Not supported on this device"}
-                </p>
+              <p className="mb-2 text-xs font-medium text-foreground">Appearance</p>
+              <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1" role="group" aria-label="App theme">
+                {([
+                  { id: "light", label: "Light", icon: Sun },
+                  { id: "dim", label: "Dim", icon: Monitor },
+                  { id: "dark", label: "Dark", icon: Moon },
+                ] as const).map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setTheme(id as Theme)}
+                    aria-pressed={theme === id}
+                    className={cn(
+                      "flex h-10 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      theme === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
-            <Switch
-              checked={lockMethod === "biometric"}
-              onCheckedChange={(checked) => {
-                if (checked) {
-                  void handleEnableBiometric();
-                } else {
-                  handleDisableBiometric();
-                }
-              }}
-              disabled={!biometricSupported}
-            />
-          </div>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Lock className="h-4 w-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm font-medium">PIN Lock</p>
-                <p className="text-xs text-muted-foreground">{hasPin ? "PIN is set" : "Set a 4-6 digit PIN"}</p>
-              </div>
+            <div className="border-y border-border/70">
+              <SettingRow
+                icon={<Bell className="h-4 w-4" />}
+                title="Push notifications"
+                description={
+                  pushPermission === "granted"
+                    ? "Enabled on this device"
+                    : pushPermission === "denied"
+                      ? "Blocked in browser settings"
+                      : pushPermission === "unsupported"
+                        ? "Not supported on this device"
+                        : "Get messages, calls, and memory alerts"
+                }
+                action={pushPermission === "granted" ? (
+                  <StatusPill positive>On</StatusPill>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleEnablePush();
+                    }}
+                    disabled={isEnablingPush || pushPermission === "unsupported"}
+                  >
+                    {isEnablingPush ? <Loader2 className="animate-spin" /> : "Enable"}
+                  </Button>
+                )}
+              />
             </div>
-            <Switch
-              checked={lockMethod === "pin"}
-              onCheckedChange={(checked) => {
-                if (checked) {
-                  setPinSetupMode(true);
-                } else {
-                  handleRemovePin();
-                }
-              }}
-            />
-          </div>
+          </section>
 
-          {pinSetupMode && (
-            <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
-              <p className="text-xs font-medium text-foreground">Set your PIN</p>
-              <div className="relative">
-                <Input
-                  type={showPin ? "text" : "password"}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  placeholder="Enter 4-6 digit PIN"
-                  value={pinInput}
-                  onChange={(event) => setPinInput(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="h-8 pr-9 text-sm"
-                />
+          <section className="space-y-4">
+            <SectionHeading
+              title="Privacy"
+              description="Protect access to your shared memories on this device."
+            />
+
+            <div className="divide-y divide-border/70 border-y border-border/70">
+              <SettingRow
+                icon={<Fingerprint className="h-4 w-4" />}
+                title="Face ID or fingerprint"
+                description={biometricSupported ? "Use your device security to unlock" : "Not available on this device"}
+                action={
+                  <Switch
+                    checked={lockMethod === "biometric"}
+                    onCheckedChange={(checked) => checked ? void handleEnableBiometric() : handleDisableBiometric()}
+                    disabled={!biometricSupported}
+                    aria-label="Use biometric app lock"
+                  />
+                }
+              />
+              <SettingRow
+                icon={<Lock className="h-4 w-4" />}
+                title="PIN lock"
+                description={hasPin ? "A PIN is configured on this device" : "Set a secure 4 to 6 digit PIN"}
+                action={
+                  <Switch
+                    checked={lockMethod === "pin"}
+                    onCheckedChange={(checked) => {
+                      if (!checked) {
+                        handleRemovePin();
+                        return;
+                      }
+                      if (hasPin) {
+                        setStoredLockMethod("pin");
+                        setLockMethod("pin");
+                        toast({ title: "PIN lock enabled" });
+                        return;
+                      }
+                      setPinSetupMode(true);
+                    }}
+                    aria-label="Use PIN app lock"
+                  />
+                }
+              />
+            </div>
+
+            {pinSetupMode && (
+              <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3 sm:p-4">
+                <div>
+                  <p className="text-sm font-semibold">Set a PIN</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Use 4 to 6 digits you can remember.</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="relative">
+                    <Input
+                      type={showPin ? "text" : "password"}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={6}
+                      placeholder="Enter PIN"
+                      value={pinInput}
+                      onChange={(event) => setPinInput(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                      className="pr-11"
+                      aria-label="Enter PIN"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPin((value) => !value)}
+                      className="absolute right-0 top-0 flex h-10 w-10 items-center justify-center text-muted-foreground"
+                      aria-label={showPin ? "Hide PIN" : "Show PIN"}
+                    >
+                      {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <Input
+                    type={showPin ? "text" : "password"}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="Confirm PIN"
+                    value={pinConfirm}
+                    onChange={(event) => setPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    aria-label="Confirm PIN"
+                  />
+                </div>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                  <Button type="button" variant="outline" onClick={resetPinForm}>Cancel</Button>
+                  <Button type="button" onClick={() => void handleSavePin()} disabled={pinInput.length < 4 || pinConfirm.length < 4}>
+                    <Lock /> Save PIN
+                  </Button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-4">
+            <SectionHeading
+              title="App"
+              description="Installation and session controls for this device."
+            />
+
+            <div className="border-y border-border/70">
+              <SettingRow
+                icon={<Download className="h-4 w-4" />}
+                title="Install usMoments"
+                description={
+                  isInstalled
+                    ? "Installed and ready on this device"
+                    : canInstall
+                      ? "Add the app for faster access"
+                      : isIOS
+                        ? "In Safari, use Share then Add to Home Screen"
+                        : "Use Chrome or Edge to install the app"
+                }
+                action={isInstalled ? (
+                  <StatusPill positive>Installed</StatusPill>
+                ) : canInstall ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleInstall()} disabled={isInstalling}>
+                    {isInstalling ? <Loader2 className="animate-spin" /> : "Install"}
+                  </Button>
+                ) : null}
+              />
+            </div>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => setShowPin((value) => !value)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  className="flex min-h-14 w-full items-center gap-3 rounded-md px-1 py-2 text-left text-destructive transition-colors hover:bg-destructive/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
                 >
-                  {showPin ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-destructive/10">
+                    <LogOut className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">Sign out</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">End this session on the current device</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4" />
                 </button>
-              </div>
-              <Input
-                type={showPin ? "text" : "password"}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={6}
-                placeholder="Confirm PIN"
-                value={pinConfirm}
-                onChange={(event) => setPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="h-8 text-sm"
-              />
-              <div className="flex gap-2">
-                <Button size="sm" className="flex-1" onClick={() => void handleSavePin()} disabled={pinInput.length < 4}>
-                  <Lock className="mr-1.5 h-3.5 w-3.5" /> Set PIN
-                </Button>
-                <Button size="sm" variant="outline" onClick={resetPinForm}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Crown className="h-4 w-4 text-primary" /> Subscription
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {plan === "soulmate" ? "Soulmate plan - full access" : plan === "dating" ? "Dating plan active" : "Free plan"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button onClick={onNavigateBilling} variant="outline" size="sm" className="w-full">
-            <Crown className="mr-2 h-3.5 w-3.5 text-primary" />
-            {plan === "free" ? "Upgrade Plan" : "Manage Plan"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Smartphone className="h-4 w-4 text-primary" /> Install App
-          </CardTitle>
-          <CardDescription className="text-xs">Add usMoments to your home screen</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {isInstalled ? (
-            <div className="flex items-center gap-3 rounded-lg border border-primary/15 bg-primary/8 px-3 py-2.5">
-              <Smartphone className="h-4 w-4 shrink-0 text-primary" />
-              <div>
-                <p className="text-sm font-medium text-foreground">App installed</p>
-                <p className="text-xs text-muted-foreground">Running as a standalone app</p>
-              </div>
-            </div>
-          ) : installPrompt ? (
-            <div className="space-y-2">
-              <Button onClick={() => void handleInstall()} size="sm" className="w-full gap-2">
-                <Download className="h-3.5 w-3.5" />
-                Install usMoments
-              </Button>
-              <p className="text-center text-xs text-muted-foreground">Add to home screen for quick access</p>
-            </div>
-          ) : isIOS ? (
-            <div className="space-y-1 rounded-lg border border-border bg-muted/50 px-3 py-2.5">
-              <p className="text-sm font-medium text-foreground">Install on iOS</p>
-              <p className="text-xs text-muted-foreground">
-                Tap the share button in Safari, then choose "Add to Home Screen"
-              </p>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">Open in Chrome or Edge to install this app</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Bell className="h-4 w-4 text-primary" /> Push Notifications
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Turn on notifications after installing usMoments on your phone.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {pushPermission === "granted" ? (
-            <div className="flex items-center gap-3 rounded-lg border border-primary/15 bg-primary/8 px-3 py-2.5">
-              <Bell className="h-4 w-4 shrink-0 text-primary" />
-              <div>
-                <p className="text-sm font-medium text-foreground">Notifications enabled</p>
-                <p className="text-xs text-muted-foreground">This device can receive push alerts.</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <Button
-                onClick={() => void handleEnablePush()}
-                variant="outline"
-                size="sm"
-                className="w-full gap-2"
-                disabled={isEnablingPush}
-              >
-                <Bell className="h-3.5 w-3.5" />
-                {isEnablingPush ? "Enabling..." : "Enable notifications"}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                We only ask when you tap this button, which works better on mobile than prompting automatically.
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-destructive/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base text-destructive">
-            <LogOut className="h-4 w-4" /> Sign Out
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Button
-            variant="destructive"
-            size="sm"
-            className="w-full"
-            onClick={async () => {
-              await signOut();
-              navigate(APP_PATHS.auth);
-            }}
-          >
-            <LogOut className="mr-2 h-3.5 w-3.5" />
-            Sign out of usMoments
-          </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            You'll need to sign in again to access your vault
-          </p>
-        </CardContent>
-      </Card>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="w-[calc(100vw-2rem)] max-w-sm rounded-md p-5">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sign out of usMoments?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You will need to sign in again to access your shared vault on this device.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isSigningOut}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void handleSignOut();
+                    }}
+                    disabled={isSigningOut}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {isSigningOut && <Loader2 className="animate-spin" />}
+                    Sign out
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </section>
+      </main>
     </div>
   );
 }

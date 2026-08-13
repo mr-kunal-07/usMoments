@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useDeferredValue, useRef, useMemo } from "react";
 import { useSwipeNav } from "@/hooks/useSwipeNav";
-import { Search, Upload, Moon, Sun, Monitor, LayoutGrid, List, ArrowUpDown, FolderPlus } from "lucide-react";
+import { Search, Upload, Moon, Sun, Monitor, LayoutGrid, List, ArrowUpDown, Check, FolderPlus, SlidersHorizontal } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { usePlan } from "@/hooks/useSubscription";
@@ -20,7 +20,6 @@ import { NotificationsPanel } from "@/components/notifications/NotificationsPane
 import { PartnerBanner } from "@/components/couples/PartnerBanner";
 import { UpgradeBanner } from "@/components/billing/UpgradeBanner";
 import { MobileBottomNav } from "@/components/dashboard/MobileBottomNav";
-import { PWAInstallPrompt } from "@/components/settings/PWAInstallPrompt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCreateFolder } from "@/hooks/useFolders";
@@ -28,6 +27,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/useToast";
@@ -602,13 +603,14 @@ export default function Dashboard() {
   const renderFileTypeFilter = useCallback(() => {
     if (!isGridView) return null;
     return (
-      <div className="hidden md:flex items-center gap-0.5 p-0.5 rounded-lg bg-muted shrink-0">
+      <div className="hidden md:flex items-center gap-0.5 rounded-lg bg-muted/70 p-0.5 shrink-0">
         {FILE_TYPE_FILTERS.map((filter) => (
           <button
             key={filter}
             onClick={() => setFileTypeFilter(filter)}
+            aria-pressed={fileTypeFilter === filter}
             className={cn(
-              "px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors",
+              "h-7 rounded-md px-2.5 text-xs font-medium transition-colors",
               fileTypeFilter === filter
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -631,18 +633,30 @@ export default function Dashboard() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hidden sm:flex">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden h-9 w-9 rounded-lg md:inline-flex"
+            aria-label="Sort files"
+            title="Sort files"
+          >
             <ArrowUpDown className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuLabel className="text-xs text-muted-foreground">Sort by</DropdownMenuLabel>
           {sortItems.map(({ key, label }) => (
             <DropdownMenuItem
               key={key}
               onClick={() => toggleSort(key)}
-              className={cn(sortKey === key && "font-semibold")}
+              className={cn("justify-between gap-2", sortKey === key && "font-semibold")}
             >
-              {label} {sortKey === key ? (sortDir === "asc" ? "↑" : "↓") : ""}
+              <span>{label}</span>
+              {sortKey === key && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  {sortDir === "asc" ? "Asc" : "Desc"}
+                </span>
+              )}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -650,8 +664,60 @@ export default function Dashboard() {
     );
   }, [isGridView, sortKey, sortDir, toggleSort]);
 
+  const renderMobileMediaMenu = useCallback(() => {
+    if (!isGridView) return null;
+    const sortItems: Array<{ key: SortKey; label: string }> = [
+      { key: "created_at", label: "Date" },
+      { key: "title", label: "Name" },
+      { key: "file_size", label: "Size" },
+    ];
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0 rounded-lg md:hidden"
+            aria-label="Media options"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuLabel className="text-xs text-muted-foreground">File type</DropdownMenuLabel>
+          {FILE_TYPE_FILTERS.map((filter) => (
+            <DropdownMenuItem key={filter} onClick={() => setFileTypeFilter(filter)} className="gap-2">
+              <span className="flex-1">
+                {filter === "all" ? "All files" : filter === "image" ? "Images" : "Videos"}
+              </span>
+              {fileTypeFilter === filter && <Check className="h-3.5 w-3.5" />}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-xs text-muted-foreground">Sort by</DropdownMenuLabel>
+          {sortItems.map(({ key, label }) => (
+            <DropdownMenuItem key={key} onClick={() => toggleSort(key)} className="gap-2">
+              <span className="flex-1">{label}</span>
+              {sortKey === key && (
+                <span className="text-xs text-muted-foreground">
+                  {sortDir === "asc" ? "Asc" : "Desc"}
+                </span>
+              )}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setViewMode((value) => value === "grid" ? "list" : "grid")}>
+            {viewMode === "grid" ? <List className="mr-2 h-4 w-4" /> : <LayoutGrid className="mr-2 h-4 w-4" />}
+            {viewMode === "grid" ? "List view" : "Grid view"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }, [fileTypeFilter, isGridView, sortDir, sortKey, toggleSort, viewMode]);
+
   const renderPageHeader = useCallback(() => {
-    if (selectedView === "settings" || selectedView === "travel-map") return null;
+    if (!isGridView) return null;
     return (
       <div
         className={cn(
@@ -660,6 +726,7 @@ export default function Dashboard() {
         )}
       >
         {/* Top Row → Breadcrumb + Actions */}
+        {(selectedView === "all" || !isSpecial) && (
         <div className="flex items-center justify-between gap-2 min-h-[32px]">
           {/* Breadcrumb — only inside real folders */}
           <div className="flex-1">
@@ -767,12 +834,6 @@ export default function Dashboard() {
             )
           )}
         </div>
-
-        {/* Title */}
-        {selectedView !== "billing" && (
-          <h1 className="hidden sm:block text-xl sm:text-2xl font-semibold tracking-tight text-foreground">
-            {pageTitle}
-          </h1>
         )}
 
         {/* On This Day */}
@@ -800,7 +861,6 @@ export default function Dashboard() {
     isSpecial,
     folders,
     setSelectedView,
-    pageTitle,
     onThisDayMedia.length,
     isGridView,
     isLoading,
@@ -984,85 +1044,41 @@ export default function Dashboard() {
           <>
               {/* Header */}
               {!isChat && (
-                <header
-                  className="sticky top-0 z-10 bg-background/95 backdrop-blur-xl border-b border-border/60 shrink-0"
-                  style={{ height: "52px" }}
-                >
-                  <div className="flex items-center h-full px-2 sm:px-4 gap-1.5">
-                    <SidebarTrigger className="shrink-0 h-9 w-9" />
+                <header className={cn(
+                  "sticky top-0 z-10 shrink-0 border-b border-border/60",
+                  selectedView === "billing" ? "bg-background" : "bg-background/95 backdrop-blur-xl",
+                )}>
+                  <div className="flex h-[52px] items-center gap-2 px-2 sm:px-4">
+                    <SidebarTrigger className="h-9 w-9 shrink-0 rounded-lg" />
+                    <h1 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground sm:text-base">
+                      {pageTitle}
+                    </h1>
 
-                    {isGridView ? (
-                      <div className="relative flex-1 min-w-0 max-w-[200px] sm:max-w-md">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-                        <Input
-                          placeholder="Search..."
-                          className="pl-8 h-8 text-[13px] bg-muted/60 border-transparent focus:border-border rounded-xl"
-                          value={search}
-                          onChange={(e) => setSearch(e.target.value)}
-                        />
-                      </div>
-                    ) : (
-                      <h1 className="text-[15px] font-semibold text-foreground truncate flex-1 sm:hidden">
-                        {pageTitle}
-                      </h1>
-                    )}
-
-                    {renderFileTypeFilter()}
-
-                    <div className="flex items-center gap-0.5 ml-auto shrink-0">
-                      {renderSortMenu()}
-
-                      {isGridView && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 hidden sm:flex"
-                          onClick={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
-                          aria-label={`Switch to ${viewMode === "grid" ? "list" : "grid"} view`}
-                        >
-                          {viewMode === "grid" ? (
-                            <List className="h-4 w-4" />
-                          ) : (
-                            <LayoutGrid className="h-4 w-4" />
-                          )}
-                        </Button>
-                      )}
-
+                    <div className="flex shrink-0 items-center gap-0.5">
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-9 w-9 rounded-lg"
                         onClick={cycleTheme}
                         aria-label={`Switch theme, current mode ${theme}`}
+                        title={`Theme: ${theme}`}
                       >
                         {theme === "light" ? (
-                          <Sun className="h-[15px] w-[15px]" />
+                          <Sun className="h-4 w-4" />
                         ) : theme === "dim" ? (
-                          <Monitor className="h-[15px] w-[15px]" />
+                          <Monitor className="h-4 w-4" />
                         ) : (
-                          <Moon className="h-[15px] w-[15px]" />
+                          <Moon className="h-4 w-4" />
                         )}
                       </Button>
-
                       <NotificationsPanel />
-
-                      {(selectedView === "all" || !isSpecial) && (
-                        <Button
-                          onClick={() => setUploadOpen(true)}
-                          size="sm"
-                          className="gap-1.5 h-8 px-3 hidden sm:flex text-xs rounded-xl"
-                        >
-                          <Upload className="h-3.5 w-3.5" />
-                          Upload
-                        </Button>
-                      )}
-
                       <button
                         onClick={() => navigate(APP_PATHS.profile)}
-                        className="flex items-center gap-1.5 h-8 pl-1 pr-2 rounded-xl hover:bg-accent transition-colors shrink-0"
-                        aria-label="Go to profile"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-accent"
+                        aria-label="Open profile"
+                        title="Profile"
                       >
-                        <Avatar className="h-7 w-7 ring-2 ring-border">
+                        <Avatar className="h-7 w-7 ring-1 ring-border">
                           {profile?.avatar_url && (
                             <AvatarImage src={profile.avatar_url} alt="Profile" />
                           )}
@@ -1070,20 +1086,56 @@ export default function Dashboard() {
                             {profileInitials}
                           </AvatarFallback>
                         </Avatar>
-                        <div className="hidden lg:flex flex-col items-start leading-none">
-                          <span className="text-[11px] font-medium text-foreground truncate max-w-[80px]">
-                            {profile?.display_name ?? user?.email?.split("@")[0] ?? "You"}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground capitalize">{plan}</span>
-                        </div>
                       </button>
                     </div>
                   </div>
+
+                  {isGridView && (
+                    <div className="flex h-12 items-center gap-1.5 border-t border-border/40 px-3 sm:gap-2 sm:px-4">
+                      <div className="relative min-w-0 flex-1 md:max-w-lg">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Search memories"
+                          aria-label="Search memories"
+                          className="h-9 rounded-lg border-transparent bg-muted/60 pl-9 text-[13px] focus:border-border"
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                        />
+                      </div>
+
+                      {renderFileTypeFilter()}
+                      {renderSortMenu()}
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="hidden h-9 w-9 rounded-lg md:inline-flex"
+                        onClick={() => setViewMode((value) => value === "grid" ? "list" : "grid")}
+                        aria-label={`Switch to ${viewMode === "grid" ? "list" : "grid"} view`}
+                        title={`${viewMode === "grid" ? "List" : "Grid"} view`}
+                      >
+                        {viewMode === "grid" ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
+                      </Button>
+
+                      {renderMobileMediaMenu()}
+
+                      {(selectedView === "all" || !isSpecial) && (
+                        <Button
+                          onClick={() => setUploadOpen(true)}
+                          size="sm"
+                          className="hidden h-9 gap-1.5 rounded-lg px-3 text-xs sm:inline-flex"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          Upload
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </header>
               )}
 
               {/* Banners */}
-              {!isChat && <PartnerBanner />}
+              {!isChat && selectedView !== "billing" && <PartnerBanner />}
               {!isChat && (
                 <UpgradeBanner
                   onUpgrade={() => setSelectedView("billing")}
@@ -1105,7 +1157,8 @@ export default function Dashboard() {
               ) : (
                 <main
                   className={cn(
-                    "flex-1 overflow-auto pb-[72px] sm:pb-6 animate-in fade-in-0 duration-150 motion-reduce:animate-none",
+                    "flex-1 overflow-auto pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:pb-6",
+                    selectedView !== "billing" && "animate-in fade-in-0 duration-150 motion-reduce:animate-none",
                     selectedView !== "settings" &&
                     selectedView !== "travel-map" &&
                     "px-3 sm:px-4 md:px-6 pt-3 sm:pt-4 md:pt-6",
@@ -1183,7 +1236,6 @@ export default function Dashboard() {
           </Suspense>
         )}
 
-        <PWAInstallPrompt />
 
         {gateModal && (
           <Suspense fallback={null}>

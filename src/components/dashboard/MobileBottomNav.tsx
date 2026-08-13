@@ -166,7 +166,7 @@ const UploadFAB = memo(function UploadFAB({ enabled, onUpload }: UploadFABProps)
         className={cn(
         "flex items-center justify-center",
         "h-11 w-11 rounded-2xl bg-primary",
-        "shadow-[0_4px_16px_hsl(var(--primary)/0.45)]",
+        enabled && "shadow-[0_4px_16px_hsl(var(--primary)/0.45)]",
           "transition-all duration-150 active:scale-90",
           "disabled:opacity-30 disabled:cursor-not-allowed",
           !enabled && "pointer-events-none"
@@ -218,12 +218,15 @@ export const MobileBottomNav = memo(function MobileBottomNav({
     <nav
       aria-label="Main navigation"
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-50",
+        "fixed inset-x-0 bottom-0 z-50 bg-background",
         "sm:hidden"
       )}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="bg-background/96 backdrop-blur-xl border-t border-border/60 shadow-[0_-10px_30px_hsl(0_0%_0%/0.08)]">
+      <div className={cn(
+        "border-t border-border/70 bg-background",
+        selectedView !== "billing" && "shadow-[0_-8px_24px_hsl(0_0%_0%/0.12)]",
+      )}>
         <div className="flex items-center h-14 px-1">
           {NAV_ITEMS.map((item) => renderNavButton(item))}
           <UploadFAB enabled={uploadEnabled} onUpload={onUpload} />

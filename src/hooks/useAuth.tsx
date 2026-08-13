@@ -220,8 +220,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event: AuthChangeEvent, session: Session | null) => {
-        authLog.info("auth event", { event, userId: session?.user.id });
-
         switch (event) {
           case "INITIAL_SESSION":
             bootstrapped = true;

@@ -5,82 +5,103 @@ export interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
+type InstallOutcome = "accepted" | "dismissed" | "unavailable" | "error";
 type NavigatorWithStandalone = Navigator & { standalone?: boolean };
 type WindowWithMSStream = Window & { MSStream?: unknown };
 
+interface InstallState {
+  prompt: BeforeInstallPromptEvent | null;
+  isInstalled: boolean;
+  isInstalling: boolean;
+}
+
+const subscribers = new Set<() => void>();
+let initialized = false;
+let installState: InstallState = {
+  prompt: null,
+  isInstalled: false,
+  isInstalling: false,
+};
+
 export function isInstalledStandalone() {
   if (typeof window === "undefined") return false;
-
   return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as NavigatorWithStandalone).standalone === true
+    window.matchMedia("(display-mode: standalone)").matches
+    || (window.navigator as NavigatorWithStandalone).standalone === true
   );
 }
 
 export function isIOSInstallTarget() {
   if (typeof window === "undefined") return false;
-
   return (
-    /iphone|ipad|ipod/i.test(navigator.userAgent) &&
-    !(window as WindowWithMSStream).MSStream &&
-    !isInstalledStandalone()
+    /iphone|ipad|ipod/i.test(navigator.userAgent)
+    && !(window as WindowWithMSStream).MSStream
+    && !isInstalledStandalone()
   );
 }
 
+function publish(patch: Partial<InstallState>) {
+  installState = { ...installState, ...patch };
+  subscribers.forEach((subscriber) => subscriber());
+}
+
+export function initializePWAInstall() {
+  if (initialized || typeof window === "undefined") return;
+  initialized = true;
+  installState = { ...installState, isInstalled: isInstalledStandalone() };
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    publish({ prompt: event as BeforeInstallPromptEvent, isInstalled: false });
+  });
+
+  window.addEventListener("appinstalled", () => {
+    publish({ prompt: null, isInstalled: true, isInstalling: false });
+  });
+
+  window.matchMedia("(display-mode: standalone)").addEventListener("change", () => {
+    publish({ isInstalled: isInstalledStandalone() });
+  });
+}
+
+async function requestInstall(): Promise<InstallOutcome> {
+  const prompt = installState.prompt;
+  if (!prompt || installState.isInstalling) return "unavailable";
+
+  publish({ isInstalling: true });
+  try {
+    await prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    // A BeforeInstallPromptEvent is single-use, including after dismissal.
+    publish({ prompt: null, isInstalling: false });
+    return outcome;
+  } catch (error) {
+    console.error("[pwa] install prompt failed", error);
+    publish({ prompt: null, isInstalling: false });
+    return "error";
+  }
+}
+
 export function usePWAInstall() {
-  const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
+  const [state, setState] = useState(installState);
 
   useEffect(() => {
-    const updateInstallState = () => {
-      setIsInstalled(isInstalledStandalone());
-      setIsIOS(isIOSInstallTarget());
-    };
-
-    updateInstallState();
-
-    const beforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setPrompt(event as BeforeInstallPromptEvent);
-      updateInstallState();
-    };
-
-    const appInstalled = () => {
-      setPrompt(null);
-      setIsInstalled(true);
-      setIsIOS(false);
-    };
-
-    const standaloneQuery = window.matchMedia("(display-mode: standalone)");
-    standaloneQuery.addEventListener("change", updateInstallState);
-    window.addEventListener("beforeinstallprompt", beforeInstallPrompt);
-    window.addEventListener("appinstalled", appInstalled);
-
+    initializePWAInstall();
+    const sync = () => setState(installState);
+    subscribers.add(sync);
+    sync();
     return () => {
-      standaloneQuery.removeEventListener("change", updateInstallState);
-      window.removeEventListener("beforeinstallprompt", beforeInstallPrompt);
-      window.removeEventListener("appinstalled", appInstalled);
+      subscribers.delete(sync);
     };
   }, []);
 
-  const install = useCallback(async () => {
-    if (!prompt) return "unavailable" as const;
-
-    await prompt.prompt();
-    const { outcome } = await prompt.userChoice;
-    if (outcome === "accepted") {
-      setPrompt(null);
-      setIsInstalled(true);
-    }
-
-    return outcome;
-  }, [prompt]);
+  const install = useCallback(() => requestInstall(), []);
 
   return {
-    canInstall: !!prompt,
+    canInstall: Boolean(state.prompt) && !state.isInstalled,
     install,
-    isIOS,
-    isInstalled,
+    isIOS: isIOSInstallTarget(),
+    isInstalled: state.isInstalled,
+    isInstalling: state.isInstalling,
   };
 }

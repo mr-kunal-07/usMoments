@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
 import {
-  Send, Trash2, Lock, Reply, X, Check, CheckCheck, Smile,
+  Send, Trash2, Lock, Reply, X, Check, Smile,
   Mic, Play, Pause, ArrowLeft, Pencil, CheckSquare, Phone, Video,
   Palette,
 } from "lucide-react";
@@ -86,9 +86,34 @@ function getMediaPathFromPublicUrl(url: string): string | null {
 
 const ReadReceipt = memo(function ReadReceipt({ msg, isMe }: { msg: Message; isMe: boolean }) {
   if (!isMe) return null;
-  return msg.read_at
-    ? <CheckCheck className="h-3.5 w-3.5 text-[hsl(var(--wa-tick-blue))] inline-block ml-0.5" />
-    : <Check className="h-3.5 w-3.5 text-[hsl(var(--wa-meta))] inline-block ml-0.5" />;
+
+  const isSending = msg.id.startsWith("optimistic-");
+  if (isSending) {
+    return (
+      <span
+        className="relative ml-0.5 inline-block h-3.5 w-3.5 shrink-0 text-[hsl(var(--wa-meta))]"
+        role="img"
+        aria-label="Sending"
+      >
+        <span className="absolute left-[4px] top-[2px] h-[8px] w-[4px] rotate-45 border-b-[1.5px] border-r-[1.5px] border-current" />
+      </span>
+    );
+  }
+
+  const isRead = Boolean(msg.read_at);
+  return (
+    <svg
+      className="ml-px inline-block h-[11px] w-[14px] shrink-0 overflow-visible"
+      viewBox="0 0 14 11"
+      fill="none"
+      style={{ color: isRead ? "hsl(var(--wa-tick-blue))" : "hsl(var(--wa-meta))" }}
+      role="img"
+      aria-label={isRead ? "Read" : "Delivered"}
+    >
+      <path d="M0.75 5.4 3.35 8 8.45 2.8" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4.2 5.4 6.8 8 12.9 1.8" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 });
 
 // ─── AudioBubble ──────────────────────────────────────────────────────────────
@@ -310,7 +335,7 @@ const SwipeBackWrapper = memo(function SwipeBackWrapper({
 
   return (
     <div
-      className="flex flex-col h-full"
+      className="flex h-full min-h-0 flex-col overflow-hidden"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -781,44 +806,44 @@ export function ChatView({
         {/* ── Header ── */}
         {selectMode ? (
           <div
-            className="sticky top-0 flex min-w-0 items-center gap-1.5 px-2 py-2 shrink-0 z-20 sm:gap-2 sm:px-3"
+            className="sticky top-0 z-20 flex min-w-0 shrink-0 items-center gap-1 px-2 py-2 sm:gap-2 sm:px-3"
             style={{
               background: "hsl(var(--wa-header))",
               borderBottom: "1px solid hsl(var(--border))",
               paddingTop: "calc(0.5rem + env(safe-area-inset-top, 0px))",
             }}
           >
-            <button type="button" onClick={clearSelect} className="p-1 rounded-full shrink-0" style={{ color: "hsl(var(--wa-text))" }} aria-label="Clear selection">
+            <button type="button" onClick={clearSelect} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ color: "hsl(var(--wa-text))" }} aria-label="Clear selection">
               <X className="h-4 w-4" />
             </button>
-            <span className="flex-1 text-sm font-semibold" style={{ color: "hsl(var(--wa-text))" }}>
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: "hsl(var(--wa-text))" }}>
               {selectedIds.size} selected
             </span>
             <button
               type="button"
               onClick={toggleSelectAll}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium sm:px-2.5"
               style={{
                 background: allMessagesSelected ? "hsl(var(--wa-online) / 0.14)" : "hsl(var(--wa-text) / 0.08)",
                 color: allMessagesSelected ? "hsl(var(--wa-online))" : "hsl(var(--wa-text))",
               }}
             >
               <CheckSquare className="h-3.5 w-3.5" />
-              {allMessagesSelected ? "Unselect all" : "Select all"}
+              <span className="hidden min-[390px]:inline">{allMessagesSelected ? "Unselect all" : "Select all"}</span>
             </button>
             <button
               type="button"
               onClick={handleDeleteSelected}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-medium sm:px-2.5"
               style={{ background: "hsl(var(--destructive) / 0.12)", color: "hsl(var(--destructive))" }}
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Delete
+              <span className="hidden min-[360px]:inline">Delete</span>
             </button>
           </div>
         ) : (
           <div
-            className="sticky top-0 flex min-w-0 items-center gap-1.5 px-2 py-2 shrink-0 z-20 sm:gap-2 sm:px-3"
+            className="sticky top-0 z-20 flex min-w-0 shrink-0 items-center gap-1 px-2 py-2 sm:gap-2 sm:px-3"
             style={{
               background: "hsl(var(--wa-header))",
               borderBottom: "1px solid hsl(var(--border))",
@@ -826,7 +851,7 @@ export function ChatView({
             }}
           >
             {onBack && (
-              <button type="button" onClick={onBack} className="sm:hidden p-1 rounded-full shrink-0" style={{ color: "hsl(var(--wa-text))" }} aria-label="Back">
+              <button type="button" onClick={onBack} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full sm:hidden" style={{ color: "hsl(var(--wa-text))" }} aria-label="Back">
                 <ArrowLeft className="h-4 w-4" />
               </button>
             )}
@@ -865,17 +890,17 @@ export function ChatView({
               </p>
             </div>
 
-            <div className="flex shrink-0 items-center gap-0 min-w-fit sm:gap-0.5">
-              <button type="button" onClick={() => void startCall("voice")} disabled={callState !== "idle"} className="rounded-full p-1.5 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed sm:p-2" style={{ color: "hsl(var(--wa-text) / 0.7)" }} title="Voice call" aria-label="Voice call">
+            <div className="flex min-w-fit shrink-0 items-center gap-0 sm:gap-0.5">
+              <button type="button" onClick={() => void startCall("voice")} disabled={callState !== "idle"} className="flex h-10 w-10 touch-manipulation items-center justify-center rounded-full transition-transform duration-150 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40" style={{ color: "hsl(var(--wa-text) / 0.7)" }} title="Voice call" aria-label="Voice call">
                 <Phone className="h-5 w-5" />
               </button>
-              <button type="button" onClick={() => void startCall("video")} disabled={callState !== "idle"} className="rounded-full p-1.5 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed sm:p-2" style={{ color: "hsl(var(--wa-text) / 0.7)" }} title="Video call" aria-label="Video call">
+              <button type="button" onClick={() => void startCall("video")} disabled={callState !== "idle"} className="flex h-10 w-10 touch-manipulation items-center justify-center rounded-full transition-transform duration-150 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40" style={{ color: "hsl(var(--wa-text) / 0.7)" }} title="Video call" aria-label="Video call">
                 <Video className="h-5 w-5" />
               </button>
               <div className="relative">
                 <button
                   onClick={() => setShowThemePicker(p => !p)}
-                  className="rounded-full p-1.5 active:scale-95 transition-colors sm:p-2"
+                  className="flex h-10 w-10 items-center justify-center rounded-full transition-colors active:scale-95"
                   style={{
                     color: showThemePicker ? "hsl(var(--wa-online))" : "hsl(var(--wa-text) / 0.7)",
                     background: showThemePicker ? "hsl(var(--wa-online) / 0.1)" : "transparent",
@@ -901,7 +926,7 @@ export function ChatView({
 
         {/* ── Messages ── */}
         <div
-          className="flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 sm:px-3"
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-2 py-2 sm:px-3"
           style={{
             background: "hsl(var(--wa-bg))",
             paddingBottom: kbOffset > 0 ? "0.5rem" : undefined,
@@ -1011,7 +1036,7 @@ export function ChatView({
                                 style={{
                                   background: isMe ? "hsl(var(--wa-bubble-out))" : "hsl(var(--wa-bubble-in))",
                                   color: "hsl(var(--wa-text))",
-                                  borderRadius: prevSame ? "12px" : isMe ? "12px 4px 12px 12px" : "4px 12px 12px 12px",
+                                  borderRadius: prevSame ? "6px" : isMe ? "6px 2px 6px 6px" : "2px 6px 6px 6px",
                                 }}
                               >
                                 {isVoice && audioUrl ? (
@@ -1062,18 +1087,17 @@ export function ChatView({
                                 ) : (
                                   <>
                                     <span
-                                      className="break-words"
+                                      className="whitespace-pre-wrap break-words"
                                       // Re-enable selection on desktop (mouse users).
                                       // On mobile this is overridden by the parent's
                                       // user-select:none, which is what we want.
                                       style={{ WebkitUserSelect: "text", userSelect: "text" }}
                                     >{msg.content}</span>
-                                    <span className="inline-block w-16 h-3 ml-1" aria-hidden />
                                     <span
-                                      className="absolute bottom-1.5 right-2.5 flex items-center gap-0.5 text-[10px] select-none leading-none whitespace-nowrap"
+                                      className="ml-1.5 inline-flex translate-y-px items-center gap-px whitespace-nowrap text-[10px] leading-none select-none"
                                       style={{ color: "hsl(var(--wa-meta))" }}
                                     >
-                                      {format(new Date(msg.created_at), "h:mm a")}
+                                      {format(new Date(msg.created_at), "h:mm a").toLowerCase()}
                                       <ReadReceipt msg={msg} isMe={isMe} />
                                     </span>
                                   </>
@@ -1245,7 +1269,7 @@ export function ChatView({
           ) : (
             <>
               <div
-                className="flex min-w-0 flex-1 items-end gap-1 rounded-3xl border border-border px-2 py-2 focus-within:ring-2 focus-within:ring-green-500/20 sm:gap-2 sm:px-3"
+                className="flex min-h-11 min-w-0 flex-1 items-end gap-1 rounded-md border border-border px-2 py-1.5 focus-within:ring-2 focus-within:ring-green-500/20 sm:gap-2 sm:px-3 sm:py-2"
                 style={{ background: "hsl(var(--wa-input-bg))" }}
               >
                 {/* Emoji button */}
@@ -1255,7 +1279,7 @@ export function ChatView({
                     onMouseEnter={preloadEmojiPicker}
                     onTouchStart={preloadEmojiPicker}
                     onFocus={preloadEmojiPicker}
-                    className="shrink-0 p-1"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
                     style={{
                       color: showEmojiPicker
                         ? "hsl(var(--wa-online))"
@@ -1300,7 +1324,7 @@ export function ChatView({
                 <button
                   type="button"
                   onClick={() => setShowDrawing(true)}
-                  className="shrink-0 p-1"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
                   style={{ color: "hsl(var(--wa-text) / 0.45)" }}
                   aria-label="Draw"
                 >

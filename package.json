@@ -11,6 +11,7 @@
     "typecheck": "tsc -b --pretty false",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "preview": "vite preview",
+    "supabase:secrets:billing": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-billing-secrets.ps1",
     "test": "vitest run",
     "test:watch": "vitest"
   },

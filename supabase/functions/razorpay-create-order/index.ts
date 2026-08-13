@@ -1,45 +1,48 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isBillingPlan, PLAN_CONFIG } from "../_shared/billing.ts";
+import { getCorsHeaders, isAllowedOrigin } from "../_shared/cors.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
-
-const json = (data: unknown, status = 200) =>
+const json = (req: Request, data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...getCorsHeaders(req, "POST, OPTIONS"), "Content-Type": "application/json" },
   });
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  const corsHeaders = getCorsHeaders(req, "POST, OPTIONS");
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: isAllowedOrigin(req.headers.get("Origin")) ? 204 : 403, headers: corsHeaders });
+  }
+  if (!isAllowedOrigin(req.headers.get("Origin"))) return json(req, { error: "Origin not allowed" }, 403);
+  if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
 
   try {
-    const keyId = Deno.env.get("RAZORPAY_KEY_ID");
-    const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    if (!keyId || !keySecret || !supabaseUrl || !serviceRoleKey) {
-      console.error("razorpay-create-order is missing required server secrets");
-      return json({ error: "Payment service is not configured" }, 503);
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error("razorpay-create-order is missing Supabase server configuration");
+      return json(req, { error: "Service is not configured" }, 503);
     }
 
     const authHeader = req.headers.get("Authorization");
     const token = authHeader?.replace(/^Bearer\s+/i, "").trim();
-    if (!token) return json({ error: "Unauthorized" }, 401);
+    if (!token) return json(req, { error: "Unauthorized" }, 401);
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) return json({ error: "Unauthorized" }, 401);
+    if (authError || !user) return json(req, { error: "Unauthorized" }, 401);
+
+    const keyId = Deno.env.get("RAZORPAY_KEY_ID");
+    const keySecret = Deno.env.get("RAZORPAY_KEY_SECRET");
+    if (!keyId || !keySecret) {
+      console.error("razorpay-create-order is missing Razorpay server configuration");
+      return json(req, { error: "Payment service is not configured" }, 503);
+    }
 
     const body = await req.json().catch(() => null) as { plan?: unknown } | null;
-    if (!isBillingPlan(body?.plan)) return json({ error: "Invalid billing plan" }, 400);
+    if (!isBillingPlan(body?.plan)) return json(req, { error: "Invalid billing plan" }, 400);
 
     const plan = body.plan;
     const pricing = PLAN_CONFIG[plan];
@@ -65,10 +68,10 @@ serve(async (req) => {
     const order = await orderResponse.json();
     if (!orderResponse.ok) {
       console.error("Razorpay order creation failed", { status: orderResponse.status });
-      return json({ error: "Unable to create payment order" }, 502);
+      return json(req, { error: "Unable to create payment order" }, 502);
     }
 
-    return json({
+    return json(req, {
       order_id: order.id,
       amount: order.amount,
       currency: order.currency,
@@ -78,6 +81,6 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("razorpay-create-order failed", error);
-    return json({ error: "Unable to create payment order" }, 500);
+    return json(req, { error: "Unable to create payment order" }, 500);
   }
 });

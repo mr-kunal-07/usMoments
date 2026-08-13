@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => ({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "pwa-icon-192.png", "pwa-icon-512.png"],
+      includeAssets: ["favicon.ico", "pwa-icon-192.png", "pwa-icon-512.png", "pwa-icon-maskable-512.png"],
       workbox: {
         cleanupOutdatedCaches: true,
         clientsClaim: true,
@@ -141,8 +141,9 @@ export default defineConfig(({ mode }) => ({
         scope: "/",
         start_url: "/",
         icons: [
-          { src: "/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/pwa-icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: "/pwa-icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/pwa-icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/pwa-icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
     }),

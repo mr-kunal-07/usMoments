@@ -1,8 +1,8 @@
 export const PLAN_CONFIG = {
   dating: {
-    amount: 2_900,
+    amount: 100,
     currency: "INR",
-    description: "usMoments Dating - INR 29/month",
+    description: "usMoments Dating - INR 1/month",
   },
   soulmate: {
     amount: 9_900,

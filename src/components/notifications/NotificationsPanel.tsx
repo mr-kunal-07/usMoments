@@ -1,64 +1,21 @@
 import { useNotifications } from "@/hooks/useNotifications";
 import { Button } from "@/components/ui/button";
-import { Download, Heart } from "lucide-react";
+import { Heart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { dashboardPath } from "@/app/router/paths";
-import { usePWAInstall } from "@/hooks/usePWAInstall";
-import { useToast } from "@/hooks/useToast";
 import { haptic } from "@/lib/haptics";
 
 export function NotificationsPanel() {
   const { data: notifications = [] } = useNotifications();
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const { canInstall, install, isIOS, isInstalled } = usePWAInstall();
 
   const unread = notifications.filter((n) => !n.read).length;
-
-  const handleInstall = async () => {
-    haptic("light");
-    if (canInstall) {
-      const outcome = await install();
-      if (outcome === "accepted") {
-        toast({ title: "Installing usMoments", description: "The app is being added to your device." });
-      }
-      return;
-    }
-
-    if (isIOS) {
-      toast({
-        title: "Install usMoments",
-        description: "Tap Share, then Add to Home Screen.",
-      });
-      return;
-    }
-
-    toast({
-      title: "Install from your browser",
-      description: "Open the browser menu and choose Install app or Add to Home Screen.",
-    });
-  };
-
-  if (!isInstalled) {
-    return (
-      <Button
-        variant="default"
-        size="sm"
-        className="h-8 gap-1.5 rounded-md px-2.5 text-xs active:scale-[0.98]"
-        onClick={() => void handleInstall()}
-      >
-        <Download className="h-3 w-3" />
-        <span className="hidden sm:inline">Download app</span>
-        <span className="sm:hidden">App</span>
-      </Button>
-    );
-  }
 
   return (
     <Button
       variant="ghost"
       size="icon"
-      className="relative h-9 w-9"
+      className="relative h-9 w-9 rounded-lg"
       onClick={() => {
         haptic("light");
         navigate(dashboardPath("activity"));

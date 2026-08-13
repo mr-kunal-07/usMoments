@@ -22,6 +22,8 @@ import {
   UserPlus,
   MessageSquareMore,
   MapPinned,
+  Download,
+  Loader2,
 } from "lucide-react";
 import { usePlan, getStorageLimit, formatStorageLimit } from "@/hooks/useSubscription";
 import { useIsAdmin } from "@/hooks/useAdmin";
@@ -33,6 +35,8 @@ import { useOnThisDay } from "@/hooks/useMemories";
 import { useMyCouple } from "@/hooks/useCouple";
 import { useUnreadMessageCount } from "@/hooks/useMessages";
 import { useAuth } from "@/hooks/useAuth";
+import { usePWAInstall } from "@/hooks/usePWAInstall";
+import { useToast } from "@/hooks/useToast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,6 +93,8 @@ const STORAGE_WARNING_THRESHOLD = 0.9;
 export function AppSidebar({ selectedView, onSelectView }: Props) {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toast } = useToast();
+  const { canInstall, install, isIOS, isInstalled, isInstalling } = usePWAInstall();
   const { setOpenMobile } = useSidebar();
   const { data: isAdmin } = useIsAdmin();
   const { data: folders = [] } = useFolders();
@@ -113,6 +119,25 @@ export function AppSidebar({ selectedView, onSelectView }: Props) {
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
 
   const plan = usePlan();
+
+  const handleInstallApp = useCallback(async () => {
+    if (canInstall) {
+      const outcome = await install();
+      if (outcome === "accepted") {
+        toast({ title: "Installing usMoments", description: "The app is being added to your device." });
+      } else if (outcome === "error") {
+        toast({ title: "Could not start installation", description: "Use your browser menu to install the app.", variant: "destructive" });
+      }
+      return;
+    }
+
+    toast({
+      title: isIOS ? "Install usMoments" : "Install from your browser",
+      description: isIOS
+        ? "Tap Share, then Add to Home Screen."
+        : "Open the browser menu and choose Install app or Add to Home Screen.",
+    });
+  }, [canInstall, install, isIOS, toast]);
 
   // Computed values
   const isConnected = couple?.status === "active";
@@ -425,6 +450,20 @@ export function AppSidebar({ selectedView, onSelectView }: Props) {
       {/* Footer */}
       <SidebarFooter className="p-3 border-t space-y-2">
         <DaysTogether />
+
+        {!isInstalled && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 w-full justify-start gap-2 rounded-lg text-xs"
+            onClick={() => void handleInstallApp()}
+            disabled={isInstalling}
+          >
+            {isInstalling ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" /> : <Download className="h-3.5 w-3.5 text-primary" />}
+            {isInstalling ? "Opening installer" : "Download app"}
+          </Button>
+        )}
 
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">

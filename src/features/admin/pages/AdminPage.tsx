@@ -43,7 +43,7 @@ const PLAN_CONFIG: Record<PlanKey, {
   price: string;
 }> = {
   single: { label: "Single", Icon: Sprout, color: "text-muted-foreground", price: "Free" },
-  dating: { label: "Dating", Icon: HeartHandshake, color: "text-primary", price: "₹29/mo" },
+  dating: { label: "Dating", Icon: HeartHandshake, color: "text-primary", price: "₹1/mo" },
   soulmate: { label: "Soulmate", Icon: Gem, color: "text-amber-500", price: "₹99/mo" },
 };
 

@@ -71,9 +71,9 @@ const CallButton = memo(function CallButton({
   hideLabel?: boolean;
   children: React.ReactNode;
 }) {
-  const dim = size === "lg" 
-    ? "h-12 w-12 sm:h-16 sm:w-16" 
-    : "h-10 w-10 sm:h-14 sm:w-14";
+  const dim = size === "lg"
+    ? "h-14 w-14 sm:h-16 sm:w-16"
+    : "h-11 w-11 sm:h-14 sm:w-14";
   const iconSize = size === "lg" ? "h-5 w-5 sm:h-7 sm:w-7" : "h-5 w-5 sm:h-6 sm:w-6";
 
   return (
@@ -82,7 +82,7 @@ const CallButton = memo(function CallButton({
         type="button"
         onClick={onClick}
         aria-label={label}
-        className={`${dim} flex items-center justify-center rounded-full transition-all active:scale-95`}
+        className={`${dim} flex touch-manipulation items-center justify-center rounded-full transition-transform duration-150 ease-out hover:scale-[1.03] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80`}
         style={{ background: bg }}
       >
         <span className={iconSize}>
@@ -129,6 +129,8 @@ export const CallModal = memo(function CallModal({
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const dragRef = useRef(false);
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingDragPositionRef = useRef<{ x: number; y: number } | null>(null);
   const [displayDuration, setDisplayDuration] = useState(0);
   const [miniPosition, setMiniPosition] = useState<{ x: number; y: number }>(() => {
     if (typeof window === "undefined") return { x: 16, y: 100 };
@@ -202,8 +204,9 @@ export const CallModal = memo(function CallModal({
   }, []);
 
   useEffect(() => {
-    void attachStream(remoteVideoRef.current, remoteStream, false);
-    void attachStream(miniRemoteVideoRef.current, remoteStream, false);
+    // Audio is routed through the dedicated audio element to avoid double playback.
+    void attachStream(remoteVideoRef.current, remoteStream, true);
+    void attachStream(miniRemoteVideoRef.current, remoteStream, true);
   }, [attachStream, hasRemoteVideo, minimized, remoteStream]);
 
   useEffect(() => {
@@ -319,6 +322,7 @@ export const CallModal = memo(function CallModal({
       // Ensure earphone is used by default (not speaker)
       audioEl.muted = false;
       audioEl.srcObject = remoteStream;
+      await audioEl.play().catch(() => { });
     };
 
     void applyRouting();
@@ -351,8 +355,16 @@ export const CallModal = memo(function CallModal({
   })();
 
   const updateMiniPosition = useCallback((clientX: number, clientY: number) => {
-    const next = clampMiniPosition(clientX - dragOffsetRef.current.x, clientY - dragOffsetRef.current.y);
-    setMiniPosition(next);
+    pendingDragPositionRef.current = clampMiniPosition(
+      clientX - dragOffsetRef.current.x,
+      clientY - dragOffsetRef.current.y,
+    );
+    if (dragFrameRef.current !== null) return;
+
+    dragFrameRef.current = window.requestAnimationFrame(() => {
+      if (pendingDragPositionRef.current) setMiniPosition(pendingDragPositionRef.current);
+      dragFrameRef.current = null;
+    });
   }, [clampMiniPosition]);
 
   const handleMouseMove = useCallback((event: MouseEvent) => {
@@ -369,6 +381,11 @@ export const CallModal = memo(function CallModal({
 
   const stopDragging = useCallback(() => {
     dragRef.current = false;
+    pendingDragPositionRef.current = null;
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
     window.removeEventListener("mousemove", handleMouseMove);
     window.removeEventListener("mouseup", stopDragging);
     window.removeEventListener("touchmove", handleTouchMove);
@@ -395,7 +412,12 @@ export const CallModal = memo(function CallModal({
     return (
       <div
         className="fixed z-[110] cursor-move overflow-hidden rounded-md border border-white/10 bg-black/95"
-        style={{ left: miniPosition.x, top: miniPosition.y }}
+        style={{
+          left: 0,
+          top: 0,
+          transform: `translate3d(${miniPosition.x}px, ${miniPosition.y}px, 0)`,
+          willChange: "transform",
+        }}
         onMouseDown={(event) => startDragging(event.clientX, event.clientY)}
         onTouchStart={(event) => {
           const touch = event.touches[0];
@@ -411,6 +433,7 @@ export const CallModal = memo(function CallModal({
               ref={miniRemoteVideoRef}
               autoPlay
               playsInline
+              muted
               className="h-full w-full object-cover"
               aria-hidden
             />
@@ -501,6 +524,7 @@ export const CallModal = memo(function CallModal({
           ref={remoteVideoRef}
           autoPlay
           playsInline
+          muted
           className="absolute inset-0 h-full w-full object-cover"
           aria-hidden
         />
@@ -522,10 +546,16 @@ export const CallModal = memo(function CallModal({
         />
       )}
 
-      <div className="relative z-10 flex h-full flex-col items-center justify-between px-4 py-8 sm:px-6 sm:py-12">
+      <div
+        className="relative z-10 flex h-full flex-col items-center justify-between px-4 animate-in fade-in-0 duration-200 sm:px-6 sm:py-12"
+        style={{
+          paddingTop: "max(2rem, env(safe-area-inset-top, 0px))",
+          paddingBottom: "max(2rem, env(safe-area-inset-bottom, 0px))",
+        }}
+      >
         <div className="absolute left-4 right-4 top-4 flex items-start justify-between gap-3">
           {isVideo ? (
-            <div className="min-w-0 rounded-2xl bg-black/35 px-4 py-3">
+            <div className="min-w-0 rounded-md bg-black/45 px-4 py-3 backdrop-blur-sm">
               <p className="max-w-[65vw] truncate font-heading text-xl font-bold text-white sm:text-2xl">{partnerName}</p>
               <p className="mt-1 text-sm text-white/70" aria-live="polite">
                 {statusText}
@@ -567,7 +597,7 @@ export const CallModal = memo(function CallModal({
                 )}
               </div>
 
-              <div className="rounded-2xl bg-black/35 px-4 py-3">
+              <div className="rounded-md bg-black/45 px-4 py-3 backdrop-blur-sm">
                 <p className="max-w-[80vw] truncate font-heading text-2xl font-bold text-white">{partnerName}</p>
                 <p className="mt-1 text-sm text-white/70" aria-live="polite">
                   {statusText}
@@ -595,7 +625,7 @@ export const CallModal = memo(function CallModal({
           />
         )}
 
-        <div className="rounded-3xl bg-black/35 px-2 py-3 sm:px-4">
+        <div className="rounded-md bg-black/45 px-3 py-3 backdrop-blur-sm sm:px-4">
           <div className="flex items-center justify-center gap-2 sm:gap-4 lg:gap-6 flex-nowrap">
             {isRinging ? (
               <>

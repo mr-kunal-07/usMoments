@@ -1,423 +1,281 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  Check, X, HardDrive, Mic, Upload, Crown, Sparkles, Zap, Heart,
-  Sprout, HeartHandshake, Gem, ShieldCheck, Users,
+  Check,
+  Crown,
+  Gem,
+  HardDrive,
+  Heart,
+  HeartHandshake,
+  Loader2,
+  Mic,
+  ShieldCheck,
+  Sparkles,
+  Sprout,
+  Upload,
+  Zap,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useSubscription, usePlan, useIsSharedPlan, Plan } from "@/hooks/useSubscription";
-import { useRazorpayCheckout, BillingPlan } from "@/hooks/useRazorpayCheckout";
+import { Button } from "@/components/ui/button";
+import { useRazorpayCheckout, type BillingPlan } from "@/hooks/useRazorpayCheckout";
+import { useBillingSummary, type Plan } from "@/hooks/useSubscription";
+import { useIsMobile } from "@/hooks/useMobile";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
 
-interface FeatureRow {
+interface Feature {
   icon: React.ElementType;
-  text: string;
-  hint?: string;
-  single: boolean | string;
-  dating: boolean | string;
-  soulmate: boolean | string;
+  label: string;
+  values: Record<Plan, string | boolean>;
+}
+
+interface PlanMeta {
+  label: string;
+  price: string;
+  period: string;
+  description: string;
+  badge?: string;
+  Icon: React.ElementType;
 }
 
 const PLAN_ORDER: Plan[] = ["single", "dating", "soulmate"];
 
-const FEATURES: FeatureRow[] = [
-  { icon: HardDrive, text: "Shared storage", hint: "Both partners share the pool", single: "1 GB", dating: "10 GB", soulmate: "50 GB" },
-  { icon: Upload, text: "Monthly uploads", hint: "You + Partner combined", single: "50 + 50", dating: "Unlimited", soulmate: "Unlimited" },
-  { icon: Heart, text: "Partner access", single: true, dating: true, soulmate: true },
-  { icon: Mic, text: "Voice messages", single: false, dating: true, soulmate: true },
-  { icon: Zap, text: "Reactions", single: false, dating: true, soulmate: true },
-  { icon: Sparkles, text: "Love Story Card", hint: "Generate & share your story", single: true, dating: true, soulmate: true },
-  { icon: Crown, text: "All new features", single: false, dating: false, soulmate: true },
-  { icon: Crown, text: "Priority support", single: false, dating: false, soulmate: true },
-];
-
-const PLAN_META: Record<Plan, {
-  label: string;
-  tagline: string;
-  price: string | null;
-  period: string;
-  badge: string | null;
-}> = {
-  single: { label: "Single", tagline: "Explore the platform.", price: null, period: "forever free", badge: null },
-  dating: { label: "Dating", tagline: "Unlock more experiences together.", price: "Rs29", period: "/ month", badge: "Best value" },
-  soulmate: { label: "Soulmate", tagline: "Everything for the perfect connection.", price: "Rs99", period: "/ month", badge: "Most popular" },
-};
-
-const PLAN_ICON_CONFIG: Record<Plan, {
-  Icon: React.ElementType;
-  bg: string;
-  ring: string;
-  iconColor: string;
-  glow?: string;
-}> = {
-  single: { Icon: Sprout, bg: "bg-muted/60", ring: "ring-1 ring-border", iconColor: "text-muted-foreground" },
-  dating: { Icon: HeartHandshake, bg: "bg-primary/10", ring: "ring-1 ring-primary/20", iconColor: "text-primary" },
+const PLAN_META: Record<Plan, PlanMeta> = {
+  single: {
+    label: "Single",
+    price: "Free",
+    period: "forever",
+    description: "Start your shared space.",
+    Icon: Sprout,
+  },
+  dating: {
+    label: "Dating",
+    price: "Rs 1",
+    period: "per month",
+    description: "More ways to stay close.",
+    badge: "Best value",
+    Icon: HeartHandshake,
+  },
   soulmate: {
-    Icon: Gem, bg: "bg-primary/15", ring: "ring-1 ring-primary/40", iconColor: "text-primary",
-    glow: "shadow-[0_0_18px_hsl(var(--primary)/0.35)]",
+    label: "Soulmate",
+    price: "Rs 99",
+    period: "per month",
+    description: "The complete usMoments experience.",
+    badge: "Everything included",
+    Icon: Gem,
   },
 };
 
-function PlanIcon({ planId, active }: { planId: Plan; active: boolean }) {
-  const { Icon, bg, ring, iconColor, glow } = PLAN_ICON_CONFIG[planId];
-  return (
-    <div className={cn(
-      "h-11 w-11 rounded-xl flex items-center justify-center shrink-0 transition-all",
-      bg, ring, glow, active && "scale-105"
-    )}>
-      <Icon className={cn("h-5 w-5", iconColor)} strokeWidth={1.75} />
-    </div>
-  );
+const FEATURES: Feature[] = [
+  { icon: HardDrive, label: "Shared storage", values: { single: "1 GB", dating: "10 GB", soulmate: "50 GB" } },
+  { icon: Upload, label: "Monthly uploads", values: { single: "50 each", dating: "Unlimited", soulmate: "Unlimited" } },
+  { icon: Heart, label: "Partner access", values: { single: true, dating: true, soulmate: true } },
+  { icon: Mic, label: "Voice messages", values: { single: false, dating: true, soulmate: true } },
+  { icon: Zap, label: "Emoji reactions", values: { single: false, dating: true, soulmate: true } },
+  { icon: Sparkles, label: "Love Story Card", values: { single: true, dating: true, soulmate: true } },
+  { icon: Crown, label: "All future features", values: { single: false, dating: false, soulmate: true } },
+  { icon: ShieldCheck, label: "Priority support", values: { single: false, dating: false, soulmate: true } },
+];
+
+function getRecommendedPlan(currentPlan: Plan): Plan {
+  if (currentPlan === "single") return "dating";
+  if (currentPlan === "dating") return "soulmate";
+  return "soulmate";
 }
 
-function FeatureValue({ val }: { val: boolean | string }) {
-  if (val === false) return <X className="h-3.5 w-3.5 text-muted-foreground/25 mx-auto" />;
-  if (val === true) return <Check className="h-3.5 w-3.5 text-primary mx-auto" />;
-  return <span className="text-xs font-semibold text-foreground">{val}</span>;
+function getRenewalLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : ` - renews ${new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date)}`;
 }
 
-function InfoBanner({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-center">
-      <div className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-primary/10 border border-primary/20 text-sm">
-        {children}
-      </div>
-    </div>
-  );
-}
+function FeatureItem({ feature, plan }: { feature: Feature; plan: Plan }) {
+  const Icon = feature.icon;
+  const value = feature.values[plan];
+  const available = value !== false;
 
-function FeatureListItem({ row, planId }: { row: FeatureRow; planId: Plan }) {
-  const { icon: Icon, text, hint } = row;
-  const val = row[planId];
-  const active = val !== false;
   return (
-    <li className={cn("flex items-start gap-2.5 text-xs", active ? "text-foreground" : "text-muted-foreground/40")}>
-      <div className={cn("h-5 w-5 rounded-full flex items-center justify-center shrink-0 mt-px", active ? "bg-primary/10" : "bg-muted/30")}>
-        <Icon className={cn("h-3 w-3", active ? "text-primary" : "text-muted-foreground/40")} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <span>{text}</span>
-        {hint && <p className="text-[10px] text-muted-foreground/60 mt-0.5 leading-tight">{hint}</p>}
-      </div>
-      <span className="shrink-0">
-        <FeatureValue val={val} />
+    <li className={cn("flex min-h-8 items-center gap-2.5 text-sm", !available && "text-muted-foreground/45")}>
+      <span className={cn(
+        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+        available ? "bg-primary/10 text-primary" : "bg-muted/50 text-muted-foreground/40",
+      )}>
+        <Icon className="h-3.5 w-3.5" aria-hidden />
       </span>
+      <span className="min-w-0 flex-1">{feature.label}</span>
+      {typeof value === "string" ? (
+        <span className="shrink-0 text-xs font-semibold text-foreground">{value}</span>
+      ) : available ? (
+        <Check className="h-4 w-4 shrink-0 text-primary" aria-label="Included" />
+      ) : (
+        <span className="shrink-0 text-xs text-muted-foreground/50">Not included</span>
+      )}
     </li>
   );
 }
 
-function MobilePlanDots({
-  scrollRef,
-  planCount,
-  initialIdx,
-}: {
-  scrollRef: React.RefObject<HTMLDivElement>;
-  planCount: number;
-  initialIdx: number;
-}) {
-  const [activeIdx, setActiveIdx] = useState(initialIdx);
-
-  useEffect(() => {
-    const scrollEl = scrollRef.current;
-    if (!scrollEl) return;
-
-    const cards = Array.from(scrollEl.children) as HTMLElement[];
-    const observers: IntersectionObserver[] = cards.map((card, i) => {
-      const obs = new IntersectionObserver(
-        ([entry]) => { if (entry.isIntersecting && entry.intersectionRatio >= 0.5) setActiveIdx(i); },
-        { root: scrollEl, threshold: 0.5 }
-      );
-      obs.observe(card);
-      return obs;
-    });
-
-    return () => observers.forEach((o) => o.disconnect());
-  }, [scrollRef]);
-
-  return (
-    <div className="flex sm:hidden items-center justify-center gap-1.5 mt-3" aria-hidden>
-      {Array.from({ length: planCount }).map((_, i) => (
-        <span
-          key={i}
-          className={cn(
-            "rounded-full transition-all duration-300",
-            i === activeIdx ? "w-5 h-1.5 bg-primary" : "w-1.5 h-1.5 bg-muted-foreground/30"
-          )}
-        />
-      ))}
-    </div>
-  );
-}
-
-function PlanCard({
-  planId,
-  currentPlan,
-  currentPlanIndex,
-  onCheckout,
-  checkingOut,
-}: {
+interface PlanCardProps {
   planId: Plan;
   currentPlan: Plan;
-  currentPlanIndex: number;
-  onCheckout: (p: BillingPlan) => Promise<void>;
   checkingOut: BillingPlan | null;
-}) {
+  onCheckout: (plan: BillingPlan) => Promise<void>;
+  featured?: boolean;
+}
+
+function PlanCard({ planId, currentPlan, checkingOut, onCheckout, featured }: PlanCardProps) {
   const meta = PLAN_META[planId];
-  const isCurrent = currentPlan === planId;
-  const isDowngrade = PLAN_ORDER.indexOf(planId) < currentPlanIndex;
-  const isBilling = planId === "dating" || planId === "soulmate";
-  const isHighlight = planId === "soulmate";
+  const Icon = meta.Icon;
+  const isCurrent = planId === currentPlan;
+  const isPaid = planId !== "single";
+  const isDowngrade = PLAN_ORDER.indexOf(planId) < PLAN_ORDER.indexOf(currentPlan);
   const isLoading = checkingOut === planId;
 
   return (
-    <div className={cn(
-      "snap-center shrink-0 w-[82vw] sm:w-auto",
-      "relative flex flex-col rounded-2xl p-5 sm:p-6 transition-all duration-200 bg-card border",
-      isHighlight ? "border-primary/40 shadow-[0_0_40px_hsl(var(--primary)/0.08)]"
-        : isCurrent ? "border-primary/30"
-          : "border-border",
-    )}>
-      {meta.badge && (
-        <div className="absolute -top-3.5 inset-x-0 flex justify-center">
-          <Badge className="bg-primary text-primary-foreground text-[11px] font-semibold px-3 py-1 rounded-full shadow-md">
-            {meta.badge}
-          </Badge>
-        </div>
-      )}
-
-      <div className="mb-5">
-        <div className="flex items-center gap-3 mb-3">
-          <PlanIcon planId={planId} active={isCurrent} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold font-heading text-base text-foreground">{meta.label}</span>
-              {isCurrent && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Active</Badge>
-              )}
+    <section className={cn(
+      "relative flex min-w-0 flex-col overflow-hidden rounded-md border bg-card",
+      featured ? "border-primary/45" : "border-border",
+      isCurrent && "border-primary/35",
+    )} aria-label={`${meta.label} plan`}>
+      <div className="border-b border-border/60 p-4 sm:p-5">
+        <div className="flex items-start gap-3">
+          <span className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-md ring-1",
+            planId === "single"
+              ? "bg-muted/60 text-muted-foreground ring-border"
+              : "bg-primary/10 text-primary ring-primary/20",
+          )}>
+            <Icon className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <h3 className="font-heading text-base font-bold text-foreground">{meta.label}</h3>
+              {isCurrent && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">Current</Badge>}
+              {!isCurrent && meta.badge && <Badge className="h-5 px-1.5 text-[10px]">{meta.badge}</Badge>}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">{meta.tagline}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{meta.description}</p>
           </div>
         </div>
 
-        <div className="mt-4 flex items-baseline gap-1">
-          <span className={cn("font-bold font-heading tracking-tight text-foreground", meta.price ? "text-4xl" : "text-3xl")}>
-            {meta.price ?? "Free"}
-          </span>
-          {meta.price
-            ? <span className="text-sm text-muted-foreground">{meta.period}</span>
-            : <p className="text-xs text-muted-foreground mt-0.5">{meta.period}</p>
-          }
+        <div className="mt-4 flex items-end gap-1.5">
+          <span className="font-heading text-3xl font-bold tracking-tight text-foreground">{meta.price}</span>
+          <span className="pb-1 text-xs text-muted-foreground">{meta.period}</span>
         </div>
       </div>
 
-      <ul className="space-y-2.5 flex-1 mb-6">
-        {FEATURES.map((row) => (
-          <FeatureListItem key={row.text} row={row} planId={planId} />
-        ))}
-      </ul>
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
+        <ul className="flex-1 space-y-1.5">
+          {FEATURES.map((feature) => <FeatureItem key={feature.label} feature={feature} plan={planId} />)}
+        </ul>
 
-      {isCurrent ? (
-        <Button variant="outline" className="w-full rounded-xl" disabled>
-          Current plan
-        </Button>
-      ) : isDowngrade ? (
-        <Button variant="ghost" className="w-full rounded-xl text-muted-foreground text-xs" disabled>
-          Downgrade
-        </Button>
-      ) : isBilling ? (
-        <>
-          <Button
-            className="w-full rounded-xl gap-2 font-semibold"
-            variant={isHighlight ? "default" : "outline"}
-            onClick={() => onCheckout(planId as BillingPlan)}
-            disabled={checkingOut !== null}
-            size="lg"
-          >
-            {isLoading ? (
-              <span className="flex items-center gap-2">
-                <span className="h-3.5 w-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-                Processing...
-              </span>
-            ) : (
-              <>
-                {isHighlight ? <Crown className="h-4 w-4" /> : <Heart className="h-4 w-4" />}
-                {`Pay with UPI · ${meta.price}`}
-              </>
-            )}
-          </Button>
-        </>
-      ) : null}
-    </div>
+        <div className="mt-5">
+          {isCurrent ? (
+            <Button variant="outline" className="h-10 w-full rounded-md" disabled>
+              Current plan
+            </Button>
+          ) : isDowngrade || !isPaid ? (
+            <Button variant="ghost" className="h-10 w-full rounded-md text-muted-foreground" disabled>
+              {isDowngrade ? "Downgrade unavailable" : "Free plan"}
+            </Button>
+          ) : (
+            <Button
+              className="h-10 w-full gap-2 rounded-md font-semibold"
+              variant={featured ? "default" : "outline"}
+              onClick={() => onCheckout(planId)}
+              disabled={checkingOut !== null}
+            >
+              {isLoading ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Starting checkout</>
+              ) : (
+                <><Crown className="h-4 w-4" /> Choose {meta.label}</>
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
 export function BillingView() {
-  const plan = usePlan();
-  const isShared = useIsSharedPlan();
-  const { data: subscription } = useSubscription();
+  const isMobile = useIsMobile();
+  const { currentPlan, isShared, subscription } = useBillingSummary();
   const { checkout } = useRazorpayCheckout();
   const [checkingOut, setCheckingOut] = useState<BillingPlan | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Plan>(() => getRecommendedPlan(currentPlan));
 
-  const currentPlanIndex = PLAN_ORDER.indexOf(plan);
-  const initialScrollIdx = Math.max(0, currentPlanIndex);
+  useEffect(() => {
+    setSelectedPlan(getRecommendedPlan(currentPlan));
+  }, [currentPlan]);
 
-  const handleCheckout = useCallback(async (p: BillingPlan) => {
-    setCheckingOut(p);
+  const handleCheckout = useCallback(async (plan: BillingPlan) => {
+    setCheckingOut(plan);
     try {
-      await checkout(p);
+      await checkout(plan);
     } finally {
       setCheckingOut(null);
     }
   }, [checkout]);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8 pb-10 px-1">
-      <div className="text-center space-y-1 pt-3">
-        <p className="text-xs font-semibold tracking-[0.18em] uppercase text-primary">
-          Plans & Pricing
+    <div className="mx-auto w-full max-w-5xl pb-6 sm:pb-10">
+      <div className="border-b border-border/70 px-1 pb-4 pt-1 sm:pb-5 sm:pt-2">
+        <h2 className="font-heading text-xl font-bold text-foreground sm:text-2xl">Choose your plan</h2>
+        <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+          One subscription covers both partners. Secure UPI payment through Razorpay.
         </p>
-        <h2 className="text-2xl sm:text-3xl font-bold font-heading tracking-tight text-foreground">
-          Choose your story
-        </h2>
-        <p className="text-[13px] text-muted-foreground max-w-xs mx-auto">
-          One plan covers both of you. Pay with UPI and unlock premium together.
-        </p>
-      </div>
-
-      {isShared && (
-        <InfoBanner>
-          <Users className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-foreground font-medium">Your partner covers this plan</span>
-        </InfoBanner>
-      )}
-
-      {!isShared && plan !== "single" && subscription?.current_period_end && (
-        <InfoBanner>
-          <PlanIcon planId={plan} active />
-          <span className="font-medium text-foreground">{PLAN_META[plan].label} plan active</span>
-          <span className="text-muted-foreground">·</span>
-          <span className="text-xs text-muted-foreground">
-            Renews {format(new Date(subscription.current_period_end), "MMM d, yyyy")}
-          </span>
-        </InfoBanner>
-      )}
-
-      <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
-        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-          <Users className="h-4 w-4 text-primary" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-medium text-foreground">Plans are shared between partners</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            If either of you upgrades, both of you enjoy the same benefits instantly.
-          </p>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
-        <p className="font-medium text-foreground">UPI checkout</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          On supported Android mobile browsers, Razorpay can hand off to Google Pay or PhonePe. On desktop it can show a UPI QR that also works with Paytm and other UPI apps.
+        <p className="mt-2 text-xs font-medium text-primary">
+          Current: {PLAN_META[currentPlan].label}
+          {isShared ? " - shared by your partner" : getRenewalLabel(subscription?.current_period_end)}
         </p>
       </div>
 
-      <div className="relative">
-        <div
-          ref={scrollRef}
-          className={cn(
-            "flex sm:grid sm:grid-cols-3 gap-4 sm:gap-5",
-            "overflow-x-auto sm:overflow-visible",
-            "snap-x snap-mandatory sm:snap-none",
-            "-mx-3 px-3 sm:mx-0 sm:px-0",
-            "pb-3 sm:pb-0",
-            "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-          )}
-        >
+      {isMobile && <div className="mt-4">
+        <div className="grid grid-cols-3 gap-1 rounded-md bg-muted/70 p-1" aria-label="Choose a plan">
           {PLAN_ORDER.map((planId) => (
-            <PlanCard
+            <button
               key={planId}
-              planId={planId}
-              currentPlan={plan}
-              currentPlanIndex={currentPlanIndex}
-              onCheckout={handleCheckout}
-              checkingOut={checkingOut}
-            />
+              type="button"
+              onClick={() => setSelectedPlan(planId)}
+              aria-pressed={selectedPlan === planId}
+              className={cn(
+                "min-w-0 rounded-md px-1 py-2.5 text-xs font-semibold transition-colors",
+                selectedPlan === planId
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground",
+              )}
+            >
+              {PLAN_META[planId].label}
+            </button>
           ))}
         </div>
 
-        <MobilePlanDots
-          scrollRef={scrollRef}
-          planCount={PLAN_ORDER.length}
-          initialIdx={initialScrollIdx}
-        />
-      </div>
-
-      <div className="hidden sm:block rounded-2xl border border-border bg-card overflow-hidden">
-        <div className="px-6 py-4 border-b border-border flex items-center gap-2">
-          <h3 className="text-sm font-semibold font-heading text-foreground">Full feature comparison</h3>
-          <span className="text-xs text-muted-foreground">applies to both partners</span>
+        <div className="mt-3">
+          <PlanCard
+            planId={selectedPlan}
+            currentPlan={currentPlan}
+            checkingOut={checkingOut}
+            onCheckout={handleCheckout}
+            featured={selectedPlan === getRecommendedPlan(currentPlan)}
+          />
         </div>
+      </div>}
 
-        <div className="grid grid-cols-4 border-b border-border">
-          <div className="px-6 py-3" />
-          {PLAN_ORDER.map((planId) => (
-            <div key={planId} className={cn("px-4 py-3 text-center", plan === planId && "bg-primary/5")}>
-              <div className="flex flex-col items-center gap-1.5">
-                <PlanIcon planId={planId} active={plan === planId} />
-                <p className={cn("text-xs font-semibold", plan === planId ? "text-primary" : "text-muted-foreground")}>
-                  {PLAN_META[planId].label}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {FEATURES.map(({ icon: Icon, text, hint, ...vals }, i) => (
-          <div
-            key={text}
-            className={cn(
-              "grid grid-cols-4 border-b border-border/50 last:border-0",
-              i % 2 !== 0 && "bg-muted/20",
-            )}
-          >
-            <div className="px-6 py-3.5 flex items-start gap-2.5">
-              <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-              <div>
-                <span className="text-xs text-muted-foreground">{text}</span>
-                {hint && <p className="text-[10px] text-muted-foreground/50 mt-0.5">{hint}</p>}
-              </div>
-            </div>
-            {PLAN_ORDER.map((planId) => (
-              <div key={planId} className={cn("px-4 py-3.5 flex items-center justify-center", plan === planId && "bg-primary/5")}>
-                <FeatureValue val={vals[planId as keyof typeof vals] as boolean | string} />
-              </div>
-            ))}
-          </div>
+      {!isMobile && <div className="mt-7 grid grid-cols-3 items-stretch gap-4 lg:gap-5">
+        {PLAN_ORDER.map((planId) => (
+          <PlanCard
+            key={planId}
+            planId={planId}
+            currentPlan={currentPlan}
+            checkingOut={checkingOut}
+            onCheckout={handleCheckout}
+            featured={planId === getRecommendedPlan(currentPlan)}
+          />
         ))}
-      </div>
+      </div>}
 
-      <div className="rounded-xl border border-border bg-card p-5 space-y-3">
-        <h4 className="text-sm font-semibold text-foreground font-heading">Good to know</h4>
-        <ul className="space-y-2 text-xs text-muted-foreground">
-          {[
-            "One subscription covers both partners - only one of you needs to pay.",
-            "Free plan gives 50 uploads/month each (You + Partner = 100 total).",
-            "Storage is shared - both partners' uploads count towards the same pool.",
-            "UPI checkout supports mobile intent where available and shows QR on desktop.",
-          ].map((note) => (
-            <li key={note} className="flex items-start gap-2">
-              <Check className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
-              <span>{note}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <p className="text-center text-xs text-muted-foreground pb-2 flex items-center justify-center gap-1">
-        <ShieldCheck className="h-3.5 w-3.5" />
-        End-to-end encrypted storage.
+      <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+        <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+        Private storage - one payment covers both partners
       </p>
     </div>
   );

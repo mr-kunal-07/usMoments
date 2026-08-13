@@ -24,6 +24,7 @@ export function useSubscription() {
   return useQuery({
     queryKey: QK.subscription(user?.id),
     enabled: !!user,
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("subscriptions")
@@ -45,6 +46,7 @@ function useEffectivePlan() {
   return useQuery({
     queryKey: QK.effectivePlan(user?.id),
     enabled: !!user,
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("get_user_plan", { _user_id: user!.id });
       if (error) throw error;
@@ -68,6 +70,25 @@ export function useIsSharedPlan(): boolean {
   const hasPaidOwn = subscription?.plan && (subscription.plan as string) !== "free";
   const effectiveIsPaid = effectivePlan && effectivePlan !== "free";
   return !hasPaidOwn && !!effectiveIsPaid;
+}
+
+/** Billing data with one observer per underlying query. */
+export function useBillingSummary() {
+  const { data: subscription, isPending: subscriptionPending } = useSubscription();
+  const { data: rawPlan, isPending: planPending } = useEffectivePlan();
+  const currentPlan: Plan = rawPlan === "dating"
+    ? "dating"
+    : rawPlan === "soulmate" || rawPlan === "pro"
+      ? "soulmate"
+      : "single";
+  const ownsPaidPlan = Boolean(subscription?.plan && subscription.plan !== "single");
+
+  return {
+    currentPlan,
+    subscription,
+    isShared: !ownsPaidPlan && currentPlan !== "single",
+    isPending: subscriptionPending || planPending,
+  };
 }
 
 // ── Plan limits ─────────────────────────────────────────────

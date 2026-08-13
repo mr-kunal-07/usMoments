@@ -134,6 +134,7 @@ export function useWebRTC({
   const callStateRef = useRef<CallState>("idle");
   const facingModeRef = useRef<"user" | "environment">("user");
   const isFlippingRef = useRef(false);
+  const setupAttemptRef = useRef(0);
 
   const channelName = coupleId ? `call:${coupleId}` : null;
 
@@ -156,9 +157,24 @@ export function useWebRTC({
     }
   }, []);
 
-  const sendSignal = useCallback((payload: SignalPayload) => {
-    channelRef.current?.send({ type: "broadcast", event: "signal", payload });
+  const sendSignal = useCallback(async (payload: SignalPayload) => {
+    const channel = channelRef.current;
+    if (!channel) return "error" as const;
+
+    try {
+      return await channel.send({ type: "broadcast", event: "signal", payload });
+    } catch (error) {
+      console.warn("Call signal failed:", error);
+      return "error" as const;
+    }
   }, []);
+
+  const sendRequiredSignal = useCallback(async (payload: SignalPayload) => {
+    const status = await sendSignal(payload);
+    if (status !== "ok") {
+      throw new Error("The call connection is unavailable. Please try again.");
+    }
+  }, [sendSignal]);
 
   const resetChannelReadyPromise = useCallback(() => {
     channelReadyPromiseRef.current = new Promise<void>((resolve, reject) => {
@@ -168,10 +184,17 @@ export function useWebRTC({
   }, []);
 
   const cleanup = useCallback(() => {
+    setupAttemptRef.current += 1;
     stopDisconnectTimer();
     stopUnansweredTimer();
 
-    pcRef.current?.close();
+    if (pcRef.current) {
+      pcRef.current.onicecandidate = null;
+      pcRef.current.ontrack = null;
+      pcRef.current.onconnectionstatechange = null;
+      pcRef.current.oniceconnectionstatechange = null;
+      pcRef.current.close();
+    }
     pcRef.current = null;
 
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -202,11 +225,25 @@ export function useWebRTC({
   }, []);
 
   const createPC = useCallback(() => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({
+      iceServers: ICE_SERVERS,
+      bundlePolicy: "max-bundle",
+      iceCandidatePoolSize: 4,
+    });
+
+    const markConnected = () => {
+      stopDisconnectTimer();
+      stopUnansweredTimer();
+      setCallError(null);
+      if (callStateRef.current !== "connected") {
+        setCallStateSafe("connected");
+        setConnectedAt(Date.now());
+      }
+    };
 
     pc.onicecandidate = (event) => {
       if (event.candidate && myUserId) {
-        sendSignal({ type: "ice", from: myUserId, candidate: event.candidate.toJSON() });
+        void sendSignal({ type: "ice", from: myUserId, candidate: event.candidate.toJSON() });
       }
     };
 
@@ -225,11 +262,7 @@ export function useWebRTC({
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "connected") {
-        stopDisconnectTimer();
-        stopUnansweredTimer();
-        setCallError(null);
-        setCallStateSafe("connected");
-        setConnectedAt(Date.now());
+        markConnected();
       }
 
       if (pc.connectionState === "disconnected") {
@@ -243,6 +276,12 @@ export function useWebRTC({
 
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
         hangUpRef.current();
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        markConnected();
       }
     };
 
@@ -370,9 +409,12 @@ export function useWebRTC({
 
     facingModeRef.current = "user";
     setIsFrontCamera(true);
+    return stream;
+  }, []);
+
+  const activateLocalStream = useCallback((stream: MediaStream) => {
     localStreamRef.current = stream;
     setLocalStream(stream);
-    return stream;
   }, []);
 
   const ensureChannelReady = useCallback(async () => {
@@ -477,16 +519,31 @@ export function useWebRTC({
 
       try {
         setCallError(null);
-        await ensureChannelReady();
         setCallType(type);
         setIncomingCallType(type);
         setCallStateSafe("calling");
 
-        const stream = await acquireMedia(type);
+        const attemptId = setupAttemptRef.current + 1;
+        setupAttemptRef.current = attemptId;
+        const [channelResult, mediaResult] = await Promise.allSettled([
+          ensureChannelReady(),
+          acquireMedia(type),
+        ]);
+
+        if (attemptId !== setupAttemptRef.current) {
+          if (mediaResult.status === "fulfilled") {
+            mediaResult.value.getTracks().forEach((track) => track.stop());
+          }
+          return;
+        }
+        if (channelResult.status === "rejected") throw channelResult.reason;
+        if (mediaResult.status === "rejected") throw mediaResult.reason;
+
+        const stream = mediaResult.value;
+        activateLocalStream(stream);
         const pc = createPC();
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-        sendSignal({ type: "call-request", from: myUserId, callType: type });
         void sendCallPush(type);
         unansweredTimerRef.current = setTimeout(() => {
           if (callStateRef.current === "calling") {
@@ -495,9 +552,12 @@ export function useWebRTC({
           }
         }, 30_000);
 
-        const offer = await pc.createOffer();
+        const [offer] = await Promise.all([
+          pc.createOffer(),
+          sendRequiredSignal({ type: "call-request", from: myUserId, callType: type }),
+        ]);
         await pc.setLocalDescription(offer);
-        sendSignal({ type: "offer", from: myUserId, sdp: offer, callType: type });
+        await sendRequiredSignal({ type: "offer", from: myUserId, sdp: offer, callType: type });
       } catch (error) {
         console.error("startCall failed:", error);
         cleanup();
@@ -507,6 +567,7 @@ export function useWebRTC({
     },
     [
       acquireMedia,
+      activateLocalStream,
       cleanup,
       coupleId,
       createPC,
@@ -516,21 +577,42 @@ export function useWebRTC({
       partnerUserId,
       sendCallPush,
       sendMissedCallPush,
-      sendSignal,
+      sendRequiredSignal,
       setCallStateSafe,
     ],
   );
 
   const acceptCall = useCallback(async () => {
     if (!enabled || !myUserId) return;
+    if (callStateRef.current !== "ringing") return;
 
     try {
       setCallError(null);
-      const stream = await acquireMedia(incomingCallType);
+      setCallType(incomingCallType);
+      setCallStateSafe("calling");
+
+      const attemptId = setupAttemptRef.current + 1;
+      setupAttemptRef.current = attemptId;
+      const [channelResult, mediaResult] = await Promise.allSettled([
+        ensureChannelReady(),
+        acquireMedia(incomingCallType),
+      ]);
+
+      if (attemptId !== setupAttemptRef.current) {
+        if (mediaResult.status === "fulfilled") {
+          mediaResult.value.getTracks().forEach((track) => track.stop());
+        }
+        return;
+      }
+      if (channelResult.status === "rejected") throw channelResult.reason;
+      if (mediaResult.status === "rejected") throw mediaResult.reason;
+
+      const stream = mediaResult.value;
+      activateLocalStream(stream);
       const pc = createPC();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-      sendSignal({ type: "call-accept", from: myUserId, callType: incomingCallType });
+      await sendRequiredSignal({ type: "call-accept", from: myUserId, callType: incomingCallType });
 
       if (pendingOffer.current) {
         await pc.setRemoteDescription(pendingOffer.current);
@@ -538,25 +620,22 @@ export function useWebRTC({
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        sendSignal({ type: "answer", from: myUserId, sdp: answer, callType: incomingCallType });
+        await sendRequiredSignal({ type: "answer", from: myUserId, sdp: answer, callType: incomingCallType });
         await flushPendingIce(pc);
       }
-
-      setCallType(incomingCallType);
-      setCallStateSafe("calling");
     } catch (error) {
       console.error("acceptCall failed:", error);
       cleanup();
       setCallStateSafe("ringing");
       setCallError(getCallErrorMessage(error, "accept"));
     }
-  }, [acquireMedia, cleanup, createPC, enabled, flushPendingIce, incomingCallType, myUserId, sendSignal, setCallStateSafe]);
+  }, [acquireMedia, activateLocalStream, cleanup, createPC, enabled, ensureChannelReady, flushPendingIce, incomingCallType, myUserId, sendRequiredSignal, setCallStateSafe]);
 
   const rejectCall = useCallback(
     (reason: RejectReason = "declined") => {
       if (!enabled) return;
       if (myUserId) {
-        sendSignal({ type: "call-reject", from: myUserId, reason });
+        void sendSignal({ type: "call-reject", from: myUserId, reason });
       }
       cleanup();
       setCallStateSafe("idle");
@@ -567,7 +646,7 @@ export function useWebRTC({
   const hangUp = useCallback(() => {
     if (!enabled) return;
     if (myUserId && callStateRef.current !== "idle") {
-      sendSignal({ type: "call-end", from: myUserId });
+      void sendSignal({ type: "call-end", from: myUserId });
     }
     cleanup();
     setCallStateSafe("idle");
@@ -675,7 +754,7 @@ export function useWebRTC({
       switch (payload.type) {
         case "call-request":
           if (callStateRef.current !== "idle") {
-            sendSignal({ type: "call-reject", from: myUserId, reason: "busy" });
+            void sendSignal({ type: "call-reject", from: myUserId, reason: "busy" });
             return;
           }
           setCallError(null);
@@ -727,7 +806,7 @@ export function useWebRTC({
               if (pcRef.current.signalingState === "have-remote-offer") {
                 const answer = await pcRef.current.createAnswer();
                 await pcRef.current.setLocalDescription(answer);
-                sendSignal({
+                await sendRequiredSignal({
                   type: "answer",
                   from: myUserId,
                   sdp: answer,
@@ -815,6 +894,7 @@ export function useWebRTC({
     rejectCall,
     resetChannelReadyPromise,
     sendSignal,
+    sendRequiredSignal,
     setCallStateSafe,
     stopUnansweredTimer,
   ]);

@@ -2,11 +2,11 @@ import { useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/useToast";
 import { appConfig } from "@/lib/config";
 import { APP_PATHS, dashboardPath } from "@/app/router/paths";
+import { QK } from "@/lib/queryKeys";
 
 function getErrorMessage(search: URLSearchParams) {
   return (
@@ -84,10 +84,13 @@ export default function PaymentReturn() {
           throw new Error(verifyData.error || "Payment verification failed");
         }
 
-        await queryClient.invalidateQueries({ queryKey: ["subscription"] });
-        await supabase.auth.getSession();
-
         const verifiedPlan = verifyData.plan === "soulmate" ? "soulmate" : "dating";
+        queryClient.setQueryData(QK.effectivePlan(session.user.id), verifiedPlan);
+        if (verifyData.subscription) {
+          queryClient.setQueryData(QK.subscription(session.user.id), verifyData.subscription);
+        } else {
+          await queryClient.invalidateQueries({ queryKey: QK.subscription(session.user.id) });
+        }
         const planLabel = verifiedPlan === "soulmate" ? "Soulmate" : "Dating";
         finish(`${planLabel} plan activated`, "Payment verified. Welcome back.");
       } catch (error) {
